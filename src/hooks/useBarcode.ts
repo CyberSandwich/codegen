@@ -13,7 +13,6 @@ import {
   DEFAULT_BARCODE_HEIGHT,
   DEFAULT_MARGIN,
   DEFAULT_BARCODE_STYLE,
-  BARCODE_FORMATS,
 } from '../constants';
 
 interface UseBarcodeOptions {
@@ -68,8 +67,7 @@ export function useBarcode(options: UseBarcodeOptions): UseBarcodeReturn {
   const textMargin = style.textMargin ?? DEFAULT_BARCODE_STYLE.textMargin;
 
   // Validate data against format pattern
-  const formatConfig = BARCODE_FORMATS.find((f) => f.value === format);
-  const isValid = validateBarcodeData(data, format, formatConfig?.pattern);
+  const isValid = validateBarcodeData(data, format);
 
   // Generate barcode when dependencies change
   useEffect(() => {
@@ -149,8 +147,7 @@ export function useBarcode(options: UseBarcodeOptions): UseBarcodeReturn {
  */
 export function validateBarcodeData(
   data: string,
-  format: BarcodeFormat,
-  _pattern?: RegExp
+  format: BarcodeFormat
 ): boolean {
   if (!data.trim()) return false;
 

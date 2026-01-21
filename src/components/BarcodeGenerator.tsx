@@ -45,6 +45,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   const [customExportWidth, setCustomExportWidth] = useState('');
   const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
   const [showOptions, setShowOptions] = useState(false);
+  const [showFormatInfo, setShowFormatInfo] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [copyError, setCopyError] = useState(false);
 
@@ -62,6 +63,13 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
     style,
   });
 
+  // Get current format config for info display
+  const currentFormatConfig = BARCODE_FORMATS.find((f) => f.value === format);
+
+  // Real-time validation of current input (not debounced)
+  const currentData = data.trim() || DEFAULT_BARCODE_DATA;
+  const isCurrentInputValid = validateBarcodeData(currentData, format);
+
   const handleStyleChange = useCallback(
     <K extends keyof BarcodeStyleOptions>(key: K, value: BarcodeStyleOptions[K]) => {
       setStyle((prev) => ({ ...prev, [key]: value }));
@@ -72,15 +80,16 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   const handleFormatChange = useCallback(
     (newFormat: BarcodeFormat) => {
       setFormat(newFormat);
-      // Check if current data is valid for the new format
+      // Check if current data is valid for the new format, or if there's an existing error
       const currentData = data.trim() || DEFAULT_BARCODE_DATA;
-      if (!validateBarcodeData(currentData, newFormat)) {
+      const isValidForNewFormat = validateBarcodeData(currentData, newFormat);
+      if (!isValidForNewFormat || error) {
         // Reset to placeholder for new format
         const formatConfig = BARCODE_FORMATS.find((f) => f.value === newFormat);
         onDataChange(formatConfig?.placeholder ?? '');
       }
     },
-    [data, onDataChange]
+    [data, error, onDataChange]
   );
 
   // Get export dimensions (custom or preset)
@@ -388,7 +397,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             )}
           </div>
 
-          {/* Format Select + Text Toggle */}
+          {/* Format Select + Text Toggle + Info */}
           <div className="flex gap-3 w-full max-w-[320px]">
             <select
               value={format}
@@ -414,15 +423,76 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
               </svg>
             </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowFormatInfo(!showFormatInfo)}
+                className={`px-4 py-3 rounded-2xl transition-all ${
+                  showFormatInfo
+                    ? 'bg-[var(--color-accent)] text-white'
+                    : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
+                }`}
+                title="Format requirements"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+              {showFormatInfo && currentFormatConfig && (
+                <div className="absolute bottom-full right-0 mb-2 w-48 p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-lg z-30">
+                  <div className="text-xs font-medium text-[var(--color-text-primary)] mb-1">{currentFormatConfig.label}</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">{currentFormatConfig.description}</div>
+                  <div className="text-xs text-[var(--color-text-muted)] mt-2">Example: <span className="font-mono text-[var(--color-text-secondary)]">{currentFormatConfig.placeholder}</span></div>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Input */}
-          <input
-            type="text"
-            value={data}
-            onChange={(e) => onDataChange(e.target.value)}
-            className="w-full max-w-[320px] px-4 py-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-2xl text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none font-mono text-base"
-          />
+          {/* Input with validation indicator and paste button */}
+          <div className="relative w-full max-w-[320px]">
+            <input
+              type="text"
+              value={data}
+              onChange={(e) => onDataChange(e.target.value)}
+              placeholder={currentFormatConfig?.placeholder}
+              className={`w-full px-4 py-3 pr-16 bg-[var(--color-bg-secondary)] border rounded-2xl text-[var(--color-text-primary)] focus:outline-none font-mono text-base transition-colors ${
+                data.trim()
+                  ? isCurrentInputValid
+                    ? 'border-green-500/50 focus:border-green-500'
+                    : 'border-red-500/50 focus:border-red-500'
+                  : 'border-[var(--color-border)] focus:border-[var(--color-accent)]'
+              }`}
+            />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              {data.trim() && (
+                isCurrentInputValid ? (
+                  <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                )
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    if (text) onDataChange(text.trim());
+                  } catch {
+                    // Clipboard access denied or unavailable
+                  }
+                }}
+                className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+                title="Paste"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </button>
+            </div>
+          </div>
 
           {/* Actions */}
           <div className="flex gap-3 w-full max-w-[320px]">

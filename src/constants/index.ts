@@ -28,18 +28,19 @@ export const BARCODE_FORMATS: {
   label: string;
   placeholder: string;
   pattern?: RegExp;
+  description: string;
 }[] = [
-  { value: 'CODE128', label: 'Code 128', placeholder: 'ABC-123' },
-  { value: 'CODE39', label: 'Code 39', placeholder: 'ABC123', pattern: /^[A-Z0-9\-. $/+%]*$/ },
-  { value: 'CODE93', label: 'Code 93', placeholder: 'ABC123', pattern: /^[A-Z0-9\-. $/+%]*$/ },
-  { value: 'EAN13', label: 'EAN-13', placeholder: '5901234123457', pattern: /^\d{12,13}$/ },
-  { value: 'EAN8', label: 'EAN-8', placeholder: '96385074', pattern: /^\d{7,8}$/ },
-  { value: 'UPC', label: 'UPC-A', placeholder: '012345678905', pattern: /^\d{11,12}$/ },
-  { value: 'UPCE', label: 'UPC-E', placeholder: '01234565', pattern: /^\d{6,8}$/ },
-  { value: 'ITF14', label: 'ITF-14', placeholder: '10012345678902', pattern: /^\d{14}$/ },
-  { value: 'MSI', label: 'MSI', placeholder: '1234', pattern: /^\d+$/ },
-  { value: 'pharmacode', label: 'Pharmacode', placeholder: '1234', pattern: /^\d+$/ },
-  { value: 'codabar', label: 'Codabar', placeholder: 'A12345B', pattern: /^[A-D][0-9\-$:/.+]+[A-D]$/i },
+  { value: 'CODE128', label: 'Code 128', placeholder: 'ABC-123', description: 'Any ASCII characters' },
+  { value: 'CODE39', label: 'Code 39', placeholder: 'ABC123', pattern: /^[A-Z0-9\-. $/+%]*$/, description: 'A-Z, 0-9, - . $ / + % space' },
+  { value: 'CODE93', label: 'Code 93', placeholder: 'ABC123', pattern: /^[A-Z0-9\-. $/+%]*$/, description: 'A-Z, 0-9, - . $ / + % space' },
+  { value: 'EAN13', label: 'EAN-13', placeholder: '5901234123457', pattern: /^\d{12,13}$/, description: '12-13 digits' },
+  { value: 'EAN8', label: 'EAN-8', placeholder: '96385074', pattern: /^\d{7,8}$/, description: '7-8 digits' },
+  { value: 'UPC', label: 'UPC-A', placeholder: '012345678905', pattern: /^\d{11,12}$/, description: '11-12 digits' },
+  { value: 'UPCE', label: 'UPC-E', placeholder: '01234565', pattern: /^\d{6,8}$/, description: '6-8 digits' },
+  { value: 'ITF14', label: 'ITF-14', placeholder: '10012345678902', pattern: /^\d{14}$/, description: 'Exactly 14 digits' },
+  { value: 'MSI', label: 'MSI', placeholder: '1234', pattern: /^\d+$/, description: 'Digits only' },
+  { value: 'pharmacode', label: 'Pharmacode', placeholder: '1234', pattern: /^\d+$/, description: 'Number 3-131070' },
+  { value: 'codabar', label: 'Codabar', placeholder: 'A12345B', pattern: /^[A-D][0-9\-$:/.+]+[A-D]$/i, description: 'Start/end A-D, digits and - $ : / . +' },
 ];
 
 /** Size presets for QR export */

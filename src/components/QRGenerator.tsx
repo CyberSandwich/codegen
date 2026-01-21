@@ -144,34 +144,47 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
   }, [data, exportSize, customSize, exportFormat, margin, errorCorrection, style, effectiveLogoSrc, transparentBg]);
 
   const handleCopy = useCallback(async () => {
-    // Use the preview canvas for immediate copy (maintains user gesture context)
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    // Check for clipboard support
+    if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 4000);
+      return;
+    }
 
     try {
-      // Check for clipboard support
-      if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
-        setCopyError(true);
-        setTimeout(() => setCopyError(false), 4000);
-        return;
-      }
+      // Use raw data value or default for immediate response
+      const currentData = data.trim() || DEFAULT_QR_DATA;
+      const size = customSize ? parseInt(customSize) || exportSize : exportSize;
 
       // IMPORTANT: Safari requires passing a Promise directly to ClipboardItem
       // instead of awaiting the blob first. This maintains user gesture context.
       // See: https://wolfgangrittner.dev/how-to-use-clipboard-api-in-safari/
-      const blobPromise = new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              resolve(blob);
-            } else {
-              reject(new Error('Failed to create blob from canvas'));
-            }
-          },
-          'image/png',
-          1.0
-        );
-      });
+      const blobPromise = (async () => {
+        // Render QR code at export resolution (same as download)
+        const exportCanvas = await renderQRToCanvas({
+          data: currentData,
+          size,
+          margin,
+          errorCorrection,
+          style,
+          logo: effectiveLogoSrc,
+          transparentBg,
+        });
+
+        return new Promise<Blob>((resolve, reject) => {
+          exportCanvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(blob);
+              } else {
+                reject(new Error('Failed to create blob from canvas'));
+              }
+            },
+            'image/png',
+            1.0
+          );
+        });
+      })();
 
       await navigator.clipboard.write([
         new ClipboardItem({
@@ -186,7 +199,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
       setCopyError(true);
       setTimeout(() => setCopyError(false), 4000);
     }
-  }, [canvasRef]);
+  }, [data, exportSize, customSize, margin, errorCorrection, style, effectiveLogoSrc, transparentBg]);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

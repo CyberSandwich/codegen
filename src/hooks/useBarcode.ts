@@ -147,7 +147,7 @@ export function useBarcode(options: UseBarcodeOptions): UseBarcodeReturn {
  * Validates barcode data against format requirements
  * Relaxed validation - let JsBarcode handle specific format validation
  */
-function validateBarcodeData(
+export function validateBarcodeData(
   data: string,
   format: BarcodeFormat,
   _pattern?: RegExp
@@ -162,6 +162,8 @@ function validateBarcodeData(
       return /^\d{7,8}$/.test(data);
     case 'UPC':
       return /^\d{11,12}$/.test(data);
+    case 'UPCE':
+      return /^\d{6,8}$/.test(data);
     case 'ITF14':
       // ITF14 needs even number of digits, typically 14
       return /^\d{14}$/.test(data);
@@ -176,6 +178,8 @@ function validateBarcodeData(
       return /^\d+$/.test(data);
     case 'CODE39':
       return /^[A-Z0-9\-. $/+%*]+$/i.test(data);
+    case 'CODE93':
+      return /^[A-Z0-9\-. $/+%]+$/i.test(data);
     default:
       // CODE128 accepts most characters
       return data.length > 0;

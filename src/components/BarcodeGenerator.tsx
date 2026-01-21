@@ -49,8 +49,8 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   const [copySuccess, setCopySuccess] = useState(false);
   const [copyError, setCopyError] = useState(false);
 
-  // Default barcode data
-  const DEFAULT_BARCODE_DATA = 'Duke';
+  // Default barcode data (matches CODE128 placeholder)
+  const DEFAULT_BARCODE_DATA = '1234';
   const debouncedData = useDebounce(data, 300);
   const debouncedFormat = useDebounce(format, 300);
   const displayData = debouncedData.trim() || DEFAULT_BARCODE_DATA;
@@ -80,16 +80,12 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   const handleFormatChange = useCallback(
     (newFormat: BarcodeFormat) => {
       setFormat(newFormat);
-      // Check if current data is valid for the new format, or if there's an existing error
-      const currentData = data.trim() || DEFAULT_BARCODE_DATA;
-      const isValidForNewFormat = validateBarcodeData(currentData, newFormat);
-      if (!isValidForNewFormat || error) {
-        // Reset to placeholder for new format
-        const formatConfig = BARCODE_FORMATS.find((f) => f.value === newFormat);
-        onDataChange(formatConfig?.placeholder ?? '');
-      }
+      // Always reset to the new format's demo data when switching formats
+      // This ensures consistent behavior and avoids validation confusion
+      const formatConfig = BARCODE_FORMATS.find((f) => f.value === newFormat);
+      onDataChange(formatConfig?.placeholder ?? '');
     },
-    [data, error, onDataChange]
+    [onDataChange]
   );
 
   // Get export dimensions (custom or preset)
@@ -119,67 +115,80 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   const handleCopy = useCallback(async () => {
     if (!svgRef.current || !isValid) return;
 
-    // Check for secure context early - clipboard API requires HTTPS
-    const canUseClipboard = navigator.clipboard &&
-      typeof ClipboardItem !== 'undefined' &&
-      window.isSecureContext;
-
-    if (!canUseClipboard) {
+    // Check for clipboard support
+    if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
       setCopyError(true);
       setTimeout(() => setCopyError(false), 4000);
       return;
     }
 
     try {
-      // Convert SVG to PNG blob
-      const svg = svgRef.current;
-      const serializer = new XMLSerializer();
-      const svgString = serializer.serializeToString(svg);
-      const svgBlob = new Blob([svgString], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(svgBlob);
-
-      const img = new Image();
-      img.onload = async () => {
-        // Use export dimensions for high quality copy
-        const { width: exportWidth, height: exportHeight } = getExportDimensions();
-        const canvas = document.createElement('canvas');
-        canvas.width = exportWidth;
-        canvas.height = exportHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = style.bgColor;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          // Disable smoothing for crisp, sharp lines
-          ctx.imageSmoothingEnabled = false;
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          try {
-            const blob = await new Promise<Blob | null>((resolve) => {
-              canvas.toBlob(resolve, 'image/png', 1.0);
-            });
-            if (blob) {
-              await navigator.clipboard.write([
-                new ClipboardItem({ 'image/png': blob })
-              ]);
-              setCopySuccess(true);
-              setTimeout(() => setCopySuccess(false), 4000);
-              URL.revokeObjectURL(url);
-              return;
-            }
-          } catch (clipboardErr) {
-            console.warn('Clipboard write failed:', clipboardErr);
-            setCopyError(true);
-            setTimeout(() => setCopyError(false), 4000);
-          }
+      // IMPORTANT: Safari requires passing a Promise directly to ClipboardItem
+      // instead of awaiting the blob first. This maintains user gesture context.
+      // See: https://wolfgangrittner.dev/how-to-use-clipboard-api-in-safari/
+      const blobPromise = new Promise<Blob>((resolve, reject) => {
+        const svg = svgRef.current;
+        if (!svg) {
+          reject(new Error('SVG not available'));
+          return;
         }
-        URL.revokeObjectURL(url);
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        setCopyError(true);
-        setTimeout(() => setCopyError(false), 4000);
-      };
-      img.src = url;
+
+        // Convert SVG to PNG blob
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(svg);
+        const svgBlob = new Blob([svgString], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(svgBlob);
+
+        const img = new Image();
+        img.onload = () => {
+          // Use export dimensions for high quality copy
+          const { width: exportWidth, height: exportHeight } = getExportDimensions();
+          const canvas = document.createElement('canvas');
+          canvas.width = exportWidth;
+          canvas.height = exportHeight;
+          const ctx = canvas.getContext('2d');
+
+          if (ctx) {
+            ctx.fillStyle = style.bgColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Disable smoothing for crisp, sharp lines
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(
+              (blob) => {
+                URL.revokeObjectURL(url);
+                if (blob) {
+                  resolve(blob);
+                } else {
+                  reject(new Error('Failed to create blob from canvas'));
+                }
+              },
+              'image/png',
+              1.0
+            );
+          } else {
+            URL.revokeObjectURL(url);
+            reject(new Error('Failed to get canvas context'));
+          }
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('Failed to load image'));
+        };
+
+        img.src = url;
+      });
+
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'image/png': blobPromise,
+        }),
+      ]);
+
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 4000);
     } catch (err) {
       console.error('Failed to copy:', err);
       setCopyError(true);
@@ -412,7 +421,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             </select>
             <button
               onClick={() => handleStyleChange('displayValue', !style.displayValue)}
-              className={`px-4 py-3 rounded-2xl transition-all ${
+              className={`h-12 px-4 rounded-2xl transition-all flex items-center justify-center ${
                 style.displayValue
                   ? 'bg-[var(--color-accent)] text-white'
                   : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -426,7 +435,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             <div className="relative">
               <button
                 onClick={() => setShowFormatInfo(!showFormatInfo)}
-                className={`px-4 py-3 rounded-2xl transition-all ${
+                className={`h-12 px-4 rounded-2xl transition-all flex items-center justify-center ${
                   showFormatInfo
                     ? 'bg-[var(--color-accent)] text-white'
                     : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -447,51 +456,42 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             </div>
           </div>
 
-          {/* Input with validation indicator and paste button */}
-          <div className="relative w-full max-w-[320px]">
-            <input
-              type="text"
-              value={data}
-              onChange={(e) => onDataChange(e.target.value)}
-              placeholder={currentFormatConfig?.placeholder}
-              className={`w-full px-4 py-3 pr-16 bg-[var(--color-bg-secondary)] border rounded-2xl text-[var(--color-text-primary)] focus:outline-none font-mono text-base transition-colors ${
-                data.trim()
-                  ? isCurrentInputValid
-                    ? 'border-green-500/50 focus:border-green-500'
-                    : 'border-red-500/50 focus:border-red-500'
-                  : 'border-[var(--color-border)] focus:border-[var(--color-accent)]'
-              }`}
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
-              {data.trim() && (
-                isCurrentInputValid ? (
-                  <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                )
-              )}
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const text = await navigator.clipboard.readText();
-                    if (text) onDataChange(text.trim());
-                  } catch {
-                    // Clipboard access denied or unavailable
-                  }
-                }}
-                className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
-                title="Paste"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </button>
+          {/* Input with validation indicator */}
+          <div className="w-full max-w-[320px]">
+            <div className="relative">
+              <input
+                type="text"
+                value={data}
+                onChange={(e) => onDataChange(e.target.value)}
+                placeholder={currentFormatConfig?.placeholder}
+                className={`w-full px-4 py-3 pr-10 bg-[var(--color-bg-secondary)] border rounded-2xl text-[var(--color-text-primary)] focus:outline-none font-mono text-base transition-colors ${
+                  data.trim()
+                    ? isCurrentInputValid
+                      ? 'border-green-500/50 focus:border-green-500'
+                      : 'border-red-500/50 focus:border-red-500'
+                    : 'border-[var(--color-border)] focus:border-[var(--color-accent)]'
+                }`}
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                {data.trim() && (
+                  isCurrentInputValid ? (
+                    <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )
+                )}
+              </div>
             </div>
+            {/* Validation reason */}
+            {data.trim() && !isCurrentInputValid && currentFormatConfig && (
+              <div className="mt-2 text-xs text-red-400 text-center">
+                {currentFormatConfig.label} requires: {currentFormatConfig.description}
+              </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -510,21 +510,21 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
               </svg>
             </button>
             <button
-              onClick={handleExport}
+              onClick={handleCopy}
               disabled={!isValid || !debouncedData.trim()}
               className="px-4 py-3 rounded-2xl bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             </button>
             <button
-              onClick={handleCopy}
+              onClick={handleExport}
               disabled={!isValid || !debouncedData.trim()}
               className="flex-1 py-3 rounded-2xl bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
             </button>
           </div>

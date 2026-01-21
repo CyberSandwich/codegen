@@ -6,15 +6,23 @@ import { useState, useEffect, useCallback } from 'react';
 import { QRGenerator } from './components/QRGenerator';
 import { BarcodeGenerator } from './components/BarcodeGenerator';
 import { Toast } from './components/Toast';
-import { scanImageFile, isImageFile, getImageFromClipboard } from './utils/scanner';
+import { scanImageFileMultiple, isImageFile, getImageFromClipboard } from './utils/scanner';
+import type { ScanResult } from './types';
 
 type Mode = 'qr' | 'barcode';
+
+/** Unified item for display in toast - can be a scanned code or extracted link */
+interface FoundItem {
+  data: string;
+  type: 'qr' | 'barcode' | 'link';
+  label: string;
+}
 
 interface ToastState {
   message: string;
   type: 'success' | 'error' | 'info';
   copyData?: string;
-  links?: string[];
+  items?: FoundItem[];
 }
 
 /**
@@ -28,6 +36,28 @@ function extractLinks(text: string): string[] {
   return [...new Set(matches.map(url => url.replace(/[.,;:!?)]+$/, '')))];
 }
 
+/**
+ * Convert scan results to found items
+ */
+function scanResultsToItems(results: ScanResult[]): FoundItem[] {
+  return results.map(r => ({
+    data: r.data,
+    type: r.type,
+    label: r.type === 'qr' ? 'QR Code' : 'Barcode',
+  }));
+}
+
+/**
+ * Convert links to found items
+ */
+function linksToItems(links: string[]): FoundItem[] {
+  return links.map(link => ({
+    data: link,
+    type: 'link' as const,
+    label: 'Link',
+  }));
+}
+
 function App() {
   const [mode, setMode] = useState<Mode>('qr');
   const [sharedData, setSharedData] = useState('');
@@ -37,32 +67,23 @@ function App() {
   const processClipboardContent = useCallback(async () => {
     try {
       // Try to read clipboard
-      const items = await navigator.clipboard.read();
+      const clipboardItems = await navigator.clipboard.read();
+      const allFoundItems: FoundItem[] = [];
 
-      for (const item of items) {
+      for (const item of clipboardItems) {
         // Check for image
         if (item.types.includes('image/png') || item.types.includes('image/jpeg')) {
           const blob = await item.getType(item.types.find(t => t.startsWith('image/')) || 'image/png');
           const file = new File([blob], 'clipboard.png', { type: blob.type });
 
           try {
-            const result = await scanImageFile(file);
-            if (result) {
-              const displayText = result.data.length > 50
-                ? result.data.substring(0, 50) + '...'
-                : result.data;
-              setToast({
-                message: displayText,
-                type: 'success',
-                copyData: result.data,
-              });
-            } else {
-              setToast({ message: 'No code found in image', type: 'error' });
+            const results = await scanImageFileMultiple(file);
+            if (results.length > 0) {
+              allFoundItems.push(...scanResultsToItems(results));
             }
-          } catch {
-            setToast({ message: 'Failed to scan image', type: 'error' });
+          } catch (err) {
+            console.error('Scan error:', err);
           }
-          return;
         }
 
         // Check for text
@@ -72,35 +93,43 @@ function App() {
 
           // Extract links from text
           const links = extractLinks(text);
-
-          if (links.length > 1) {
-            // Multiple links found - show in toast with copy all option
-            setToast({
-              message: `${links.length} links found`,
-              type: 'success',
-              links: links,
-            });
-          } else if (links.length === 1) {
-            // Single link - show with copy option
-            setToast({
-              message: links[0].length > 50 ? links[0].substring(0, 47) + '...' : links[0],
-              type: 'success',
-              copyData: links[0],
-            });
-          } else {
-            // No links but has text - use the text directly
-            if (text.trim()) {
-              setSharedData(text.trim());
-              setToast({ message: 'Text pasted', type: 'success' });
-            } else {
-              setToast({ message: 'Clipboard empty', type: 'info' });
-            }
+          if (links.length > 0) {
+            allFoundItems.push(...linksToItems(links));
+          } else if (text.trim() && allFoundItems.length === 0) {
+            // No links and no codes found - use the text directly
+            setSharedData(text.trim());
+            setToast({ message: 'Text pasted', type: 'success' });
+            return;
           }
-          return;
         }
       }
 
-      setToast({ message: 'Nothing to paste', type: 'info' });
+      // Show results
+      if (allFoundItems.length > 1) {
+        const qrCount = allFoundItems.filter(i => i.type === 'qr').length;
+        const barcodeCount = allFoundItems.filter(i => i.type === 'barcode').length;
+        const linkCount = allFoundItems.filter(i => i.type === 'link').length;
+
+        const parts: string[] = [];
+        if (qrCount > 0) parts.push(`${qrCount} QR`);
+        if (barcodeCount > 0) parts.push(`${barcodeCount} barcode${barcodeCount > 1 ? 's' : ''}`);
+        if (linkCount > 0) parts.push(`${linkCount} link${linkCount > 1 ? 's' : ''}`);
+
+        setToast({
+          message: `Found: ${parts.join(', ')}`,
+          type: 'success',
+          items: allFoundItems,
+        });
+      } else if (allFoundItems.length === 1) {
+        const item = allFoundItems[0];
+        setToast({
+          message: item.data.length > 50 ? item.data.substring(0, 47) + '...' : item.data,
+          type: 'success',
+          copyData: item.data,
+        });
+      } else {
+        setToast({ message: 'Nothing found', type: 'info' });
+      }
     } catch {
       // Fallback for browsers that don't support clipboard.read()
       try {
@@ -112,7 +141,7 @@ function App() {
             setToast({
               message: `${links.length} links found`,
               type: 'success',
-              links: links,
+              items: linksToItems(links),
             });
           } else if (links.length === 1) {
             setToast({
@@ -141,27 +170,20 @@ function App() {
     const clipboardData = e.clipboardData;
     if (!clipboardData) return;
 
+    const allFoundItems: FoundItem[] = [];
+
+    // Check for image
     const imageFile = getImageFromClipboard(clipboardData);
     if (imageFile && isImageFile(imageFile)) {
       e.preventDefault();
       try {
-        const result = await scanImageFile(imageFile);
-        if (result) {
-          const displayText = result.data.length > 50
-            ? result.data.substring(0, 50) + '...'
-            : result.data;
-          setToast({
-            message: displayText,
-            type: 'success',
-            copyData: result.data,
-          });
-        } else {
-          setToast({ message: 'No code found', type: 'error' });
+        const results = await scanImageFileMultiple(imageFile);
+        if (results.length > 0) {
+          allFoundItems.push(...scanResultsToItems(results));
         }
-      } catch {
-        setToast({ message: 'Scan failed', type: 'error' });
+      } catch (err) {
+        console.error('Scan failed:', err);
       }
-      return;
     }
 
     // Check for text with links
@@ -170,20 +192,36 @@ function App() {
       const links = extractLinks(text);
       if (links.length > 0) {
         e.preventDefault();
-        if (links.length > 1) {
-          setToast({
-            message: `${links.length} links found`,
-            type: 'success',
-            links: links,
-          });
-        } else {
-          setToast({
-            message: links[0].length > 50 ? links[0].substring(0, 47) + '...' : links[0],
-            type: 'success',
-            copyData: links[0],
-          });
-        }
+        allFoundItems.push(...linksToItems(links));
       }
+    }
+
+    // Show results
+    if (allFoundItems.length > 1) {
+      const qrCount = allFoundItems.filter(i => i.type === 'qr').length;
+      const barcodeCount = allFoundItems.filter(i => i.type === 'barcode').length;
+      const linkCount = allFoundItems.filter(i => i.type === 'link').length;
+
+      const parts: string[] = [];
+      if (qrCount > 0) parts.push(`${qrCount} QR`);
+      if (barcodeCount > 0) parts.push(`${barcodeCount} barcode${barcodeCount > 1 ? 's' : ''}`);
+      if (linkCount > 0) parts.push(`${linkCount} link${linkCount > 1 ? 's' : ''}`);
+
+      setToast({
+        message: `Found: ${parts.join(', ')}`,
+        type: 'success',
+        items: allFoundItems,
+      });
+    } else if (allFoundItems.length === 1) {
+      const item = allFoundItems[0];
+      setToast({
+        message: item.data.length > 50 ? item.data.substring(0, 47) + '...' : item.data,
+        type: 'success',
+        copyData: item.data,
+      });
+    } else if (imageFile) {
+      // Had an image but found nothing
+      setToast({ message: 'No code found in image', type: 'error' });
     }
   }, []);
 
@@ -200,31 +238,53 @@ function App() {
     const dataTransfer = e.dataTransfer;
     if (!dataTransfer) return;
 
-    // Check for dropped files
+    const allFoundItems: FoundItem[] = [];
+
+    // Check for dropped files (can be multiple images)
     if (dataTransfer.files && dataTransfer.files.length > 0) {
-      const file = dataTransfer.files[0];
-      if (isImageFile(file)) {
-        // Scan image for QR/barcode
-        try {
-          const result = await scanImageFile(file);
-          if (result) {
-            const displayText = result.data.length > 50
-              ? result.data.substring(0, 50) + '...'
-              : result.data;
-            setToast({
-              message: displayText,
-              type: 'success',
-              copyData: result.data,
-            });
-          } else {
-            setToast({ message: 'No code found in image', type: 'error' });
+      const imageFiles = Array.from(dataTransfer.files).filter(isImageFile);
+
+      if (imageFiles.length > 0) {
+        // Scan all image files
+        for (const file of imageFiles) {
+          try {
+            const results = await scanImageFileMultiple(file);
+            if (results.length > 0) {
+              allFoundItems.push(...scanResultsToItems(results));
+            }
+          } catch (err) {
+            console.error('Failed to scan image:', err);
           }
-        } catch {
-          setToast({ message: 'Failed to scan image', type: 'error' });
+        }
+
+        // Show results
+        if (allFoundItems.length > 1) {
+          const qrCount = allFoundItems.filter(i => i.type === 'qr').length;
+          const barcodeCount = allFoundItems.filter(i => i.type === 'barcode').length;
+
+          const parts: string[] = [];
+          if (qrCount > 0) parts.push(`${qrCount} QR`);
+          if (barcodeCount > 0) parts.push(`${barcodeCount} barcode${barcodeCount > 1 ? 's' : ''}`);
+
+          setToast({
+            message: `Found: ${parts.join(', ')}`,
+            type: 'success',
+            items: allFoundItems,
+          });
+        } else if (allFoundItems.length === 1) {
+          const item = allFoundItems[0];
+          setToast({
+            message: item.data.length > 50 ? item.data.substring(0, 47) + '...' : item.data,
+            type: 'success',
+            copyData: item.data,
+          });
+        } else {
+          setToast({ message: 'No code found in image(s)', type: 'error' });
         }
         return;
       } else {
-        // Invalid file type
+        // Non-image files dropped
+        const file = dataTransfer.files[0];
         const fileName = file.name.length > 30 ? file.name.substring(0, 27) + '...' : file.name;
         setToast({ message: `${fileName} is not a valid image`, type: 'error' });
         return;
@@ -234,8 +294,23 @@ function App() {
     // Check for dropped text
     const text = dataTransfer.getData('text/plain');
     if (text) {
-      setSharedData(text);
-      setToast({ message: 'Text added', type: 'success' });
+      const links = extractLinks(text);
+      if (links.length > 1) {
+        setToast({
+          message: `${links.length} links found`,
+          type: 'success',
+          items: linksToItems(links),
+        });
+      } else if (links.length === 1) {
+        setToast({
+          message: links[0].length > 50 ? links[0].substring(0, 47) + '...' : links[0],
+          type: 'success',
+          copyData: links[0],
+        });
+      } else {
+        setSharedData(text);
+        setToast({ message: 'Text added', type: 'success' });
+      }
     }
   }, []);
 
@@ -306,7 +381,7 @@ function App() {
           message={toast.message}
           type={toast.type}
           copyData={toast.copyData}
-          links={toast.links}
+          items={toast.items}
           onClose={() => setToast(null)}
         />
       )}

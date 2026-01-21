@@ -2,7 +2,7 @@
  * QR Code Generator Component - Side panel layout
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { useQRCode } from '../hooks/useQRCode';
 import { useDebounce } from '../hooks/useDebounce';
 import { ColorPicker } from './ColorPicker';
@@ -55,7 +55,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
   const [customSize, setCustomSize] = useState('');
   const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
   const [showOptions, setShowOptions] = useState(false);
-  const [logoSrc, setLogoSrc] = useState<string | null>(null);
+  const [customLogoSrc, setCustomLogoSrc] = useState<string | null>(null);
   const [selectedIcon, setSelectedIcon] = useState('none');
   const [transparentBg, setTransparentBg] = useState(false);
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
@@ -68,13 +68,26 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
   // Use default URL when no data is entered
   const displayData = debouncedData.trim() || DEFAULT_QR_DATA;
 
+  // Compute effective logo source - derived for library icons, stored for custom uploads
+  const effectiveLogoSrc = useMemo(() => {
+    if (selectedIcon === 'none') return null;
+    if (selectedIcon === 'custom') return customLogoSrc;
+    const icon = ICON_LIBRARY.find(i => i.id === selectedIcon);
+    if (icon?.svg) {
+      const coloredSvg = icon.svg.replace('currentColor', style.fgColor);
+      const blob = new Blob([`<svg xmlns="http://www.w3.org/2000/svg" ${coloredSvg.slice(5)}`], { type: 'image/svg+xml' });
+      return URL.createObjectURL(blob);
+    }
+    return null;
+  }, [selectedIcon, customLogoSrc, style.fgColor]);
+
   const { canvasRef } = useQRCode({
     data: displayData,
     size: 320,
     margin,
     errorCorrection,
     style,
-    logo: logoSrc,
+    logo: effectiveLogoSrc,
     transparentBg,
   });
 
@@ -98,7 +111,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
       margin,
       errorCorrection,
       style,
-      logo: logoSrc,
+      logo: effectiveLogoSrc,
       transparentBg,
     });
 
@@ -128,7 +141,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
     link.download = `qrcode.${extension}`;
     link.href = dataUrl;
     link.click();
-  }, [data, exportSize, customSize, exportFormat, margin, errorCorrection, style, logoSrc, transparentBg]);
+  }, [data, exportSize, customSize, exportFormat, margin, errorCorrection, style, effectiveLogoSrc, transparentBg]);
 
   const handleCopy = useCallback(async () => {
     // Use the preview canvas for immediate copy (maintains user gesture context)
@@ -180,7 +193,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
     if (file) {
       const reader = new FileReader();
       reader.onload = (ev) => {
-        setLogoSrc(ev.target?.result as string);
+        setCustomLogoSrc(ev.target?.result as string);
         setSelectedIcon('custom');
       };
       reader.readAsDataURL(file);
@@ -188,30 +201,13 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
     e.target.value = '';
   }, []);
 
-  const handleIconSelect = useCallback((iconId: string, svg: string | null) => {
+  const handleIconSelect = useCallback((iconId: string) => {
     setSelectedIcon(iconId);
     if (iconId === 'none') {
-      setLogoSrc(null);
-    } else if (svg) {
-      const coloredSvg = svg.replace('currentColor', style.fgColor);
-      const blob = new Blob([`<svg xmlns="http://www.w3.org/2000/svg" ${coloredSvg.slice(5)}`], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      setLogoSrc(url);
+      setCustomLogoSrc(null);
     }
-  }, [style.fgColor]);
-
-  // Update icon color when foreground color changes
-  useEffect(() => {
-    if (selectedIcon !== 'none' && selectedIcon !== 'custom') {
-      const icon = ICON_LIBRARY.find(i => i.id === selectedIcon);
-      if (icon?.svg) {
-        const coloredSvg = icon.svg.replace('currentColor', style.fgColor);
-        const blob = new Blob([`<svg xmlns="http://www.w3.org/2000/svg" ${coloredSvg.slice(5)}`], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
-        setLogoSrc(url);
-      }
-    }
-  }, [style.fgColor, selectedIcon]);
+    // Library icon URLs are computed in effectiveLogoSrc useMemo
+  }, []);
 
   const handleReset = useCallback(() => {
     setErrorCorrection('H');
@@ -224,7 +220,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
     setExportSize(1024);
     setCustomSize('');
     setExportFormat('png');
-    setLogoSrc(null);
+    setCustomLogoSrc(null);
     setSelectedIcon('none');
     setTransparentBg(false);
     setMargin(DEFAULT_MARGIN);
@@ -388,7 +384,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
               <div className="flex gap-1.5 flex-wrap">
                 {/* None button */}
                 <button
-                  onClick={() => handleIconSelect('none', null)}
+                  onClick={() => handleIconSelect('none')}
                   className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs ${
                     selectedIcon === 'none'
                       ? 'bg-[var(--color-accent)] text-white'
@@ -417,7 +413,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
                 {ICON_LIBRARY.filter(i => i.id !== 'none').map((icon) => (
                   <button
                     key={icon.id}
-                    onClick={() => handleIconSelect(icon.id, icon.svg)}
+                    onClick={() => handleIconSelect(icon.id)}
                     className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
                       selectedIcon === icon.id
                         ? 'bg-[var(--color-accent)] text-white'

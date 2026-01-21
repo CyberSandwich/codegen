@@ -1,5 +1,6 @@
 /**
  * Scanner utilities for reading QR codes and barcodes from images
+ * Supports scanning multiple codes from a single image
  */
 
 import jsQR from 'jsqr';
@@ -7,20 +8,235 @@ import Quagga from '@ericblade/quagga2';
 import type { ScanResult } from '../types';
 
 /**
- * Scans an image file for QR codes or barcodes
+ * Scans an image file for QR codes or barcodes (single result - legacy)
  */
 export async function scanImageFile(file: File): Promise<ScanResult | null> {
-  const imageData = await fileToImageData(file);
+  const results = await scanImageFileMultiple(file);
+  return results.length > 0 ? results[0] : null;
+}
 
-  // Try QR code first
-  const qrResult = scanQRCode(imageData);
-  if (qrResult) return qrResult;
+/**
+ * Scans an image file for ALL QR codes and barcodes
+ * Returns an array of all found codes, deduplicated
+ */
+export async function scanImageFileMultiple(file: File): Promise<ScanResult[]> {
+  const results: ScanResult[] = [];
+  const seenData = new Set<string>();
 
-  // Then try barcode
-  const barcodeResult = await scanBarcode(file);
-  if (barcodeResult) return barcodeResult;
+  try {
+    const imageData = await fileToImageData(file);
 
-  return null;
+    // Scan for multiple QR codes using grid-based approach
+    const qrResults = scanMultipleQRCodes(imageData);
+    for (const qr of qrResults) {
+      if (!seenData.has(qr.data)) {
+        seenData.add(qr.data);
+        results.push(qr);
+      }
+    }
+
+    // Scan for multiple barcodes
+    const barcodeResults = await scanMultipleBarcodes(file);
+    for (const barcode of barcodeResults) {
+      if (!seenData.has(barcode.data)) {
+        seenData.add(barcode.data);
+        results.push(barcode);
+      }
+    }
+  } catch (error) {
+    console.error('Error scanning image:', error);
+  }
+
+  return results;
+}
+
+/**
+ * Scans for multiple QR codes by analyzing the full image and grid sections
+ */
+function scanMultipleQRCodes(imageData: ImageData): ScanResult[] {
+  const results: ScanResult[] = [];
+  const seenData = new Set<string>();
+
+  // First try the full image
+  const fullResult = jsQR(imageData.data, imageData.width, imageData.height);
+  if (fullResult && !seenData.has(fullResult.data)) {
+    seenData.add(fullResult.data);
+    results.push({
+      data: fullResult.data,
+      type: 'qr',
+      timestamp: Date.now(),
+    });
+  }
+
+  // Then try a grid of overlapping sections for multiple QR codes
+  const gridSizes = [2, 3]; // 2x2 and 3x3 grids
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return results;
+
+  for (const gridSize of gridSizes) {
+    const sectionWidth = Math.floor(imageData.width / gridSize);
+    const sectionHeight = Math.floor(imageData.height / gridSize);
+
+    // Use overlapping sections (50% overlap)
+    const stepX = Math.floor(sectionWidth / 2);
+    const stepY = Math.floor(sectionHeight / 2);
+
+    for (let y = 0; y <= imageData.height - sectionHeight; y += stepY) {
+      for (let x = 0; x <= imageData.width - sectionWidth; x += stepX) {
+        // Extract section
+        canvas.width = sectionWidth;
+        canvas.height = sectionHeight;
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = imageData.width;
+        tempCanvas.height = imageData.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) continue;
+
+        tempCtx.putImageData(imageData, 0, 0);
+        ctx.drawImage(tempCanvas, x, y, sectionWidth, sectionHeight, 0, 0, sectionWidth, sectionHeight);
+
+        const sectionData = ctx.getImageData(0, 0, sectionWidth, sectionHeight);
+        const sectionResult = jsQR(sectionData.data, sectionData.width, sectionData.height);
+
+        if (sectionResult && !seenData.has(sectionResult.data)) {
+          seenData.add(sectionResult.data);
+          results.push({
+            data: sectionResult.data,
+            type: 'qr',
+            timestamp: Date.now(),
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Scans for multiple barcodes using Quagga's multiple mode
+ */
+async function scanMultipleBarcodes(file: File): Promise<ScanResult[]> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  }).catch(() => null);
+
+  if (!dataUrl) return [];
+
+  const readers = [
+    'code_128_reader',
+    'ean_reader',
+    'ean_8_reader',
+    'code_39_reader',
+    'code_93_reader',
+    'upc_reader',
+    'upc_e_reader',
+    'codabar_reader',
+    'i2of5_reader',
+    '2of5_reader',
+  ];
+
+  const results: ScanResult[] = [];
+  const seenData = new Set<string>();
+
+  // Try with multiple: true first
+  const multiResults = await tryQuaggaDecodeMultiple(dataUrl, readers);
+  for (const result of multiResults) {
+    if (!seenData.has(result.data)) {
+      seenData.add(result.data);
+      results.push(result);
+    }
+  }
+
+  // If no results, try different configurations with single mode
+  if (results.length === 0) {
+    const configs = [
+      { patchSize: 'x-large', halfSample: false },
+      { patchSize: 'large', halfSample: false },
+      { patchSize: 'large', halfSample: true },
+      { patchSize: 'medium', halfSample: false },
+      { patchSize: 'medium', halfSample: true },
+      { patchSize: 'small', halfSample: false },
+    ];
+
+    for (const config of configs) {
+      const result = await tryQuaggaDecode(dataUrl, readers, config);
+      if (result && !seenData.has(result.data)) {
+        seenData.add(result.data);
+        results.push(result);
+        break; // Found one, stop trying configs
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Attempts to decode multiple barcodes with Quagga
+ */
+function tryQuaggaDecodeMultiple(
+  dataUrl: string,
+  readers: string[]
+): Promise<ScanResult[]> {
+  return new Promise((resolve) => {
+    Quagga.decodeSingle({
+      src: dataUrl,
+      numOfWorkers: 0,
+      locate: true,
+      locator: {
+        halfSample: false,
+        patchSize: 'large',
+      },
+      decoder: {
+        readers: readers as unknown as import('@ericblade/quagga2').QuaggaJSCodeReader[],
+        multiple: true,
+      },
+    }, (result) => {
+      const results: ScanResult[] = [];
+
+      // Handle multiple results
+      if (result && Array.isArray(result)) {
+        for (const r of result) {
+          if (r.codeResult && r.codeResult.code) {
+            const errors = r.codeResult.decodedCodes
+              ?.filter((c: { error?: number }) => c.error !== undefined)
+              ?.map((c: { error?: number }) => c.error || 0) || [];
+
+            if (errors.length > 0) {
+              const avgError = errors.reduce((a: number, b: number) => a + b, 0) / errors.length;
+              if (avgError > 0.25) continue; // Skip low confidence
+            }
+
+            results.push({
+              data: r.codeResult.code,
+              type: 'barcode',
+              timestamp: Date.now(),
+            });
+          }
+        }
+      } else if (result && result.codeResult && result.codeResult.code) {
+        // Single result
+        const errors = result.codeResult.decodedCodes
+          ?.filter((c: { error?: number }) => c.error !== undefined)
+          ?.map((c: { error?: number }) => c.error || 0) || [];
+
+        if (errors.length === 0 || errors.reduce((a: number, b: number) => a + b, 0) / errors.length <= 0.25) {
+          results.push({
+            data: result.codeResult.code,
+            type: 'barcode',
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      resolve(results);
+    });
+  });
 }
 
 /**

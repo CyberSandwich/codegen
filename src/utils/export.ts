@@ -126,7 +126,7 @@ export async function exportSvg(
   svg: SVGSVGElement,
   options: ExportOptions
 ): Promise<void> {
-  const { format, width, height, quality = DEFAULT_JPG_QUALITY, filename = 'code' } = options;
+  const { format, width, quality = DEFAULT_JPG_QUALITY, filename = 'code' } = options;
 
   if (format === 'svg') {
     // Direct SVG export
@@ -140,7 +140,7 @@ export async function exportSvg(
   }
 
   // For PNG/JPG, convert SVG to canvas first
-  const canvas = await svgToCanvas(svg, width, height);
+  const canvas = await svgToCanvas(svg, width);
 
   if (format === 'png') {
     const dataUrl = canvas.toDataURL('image/png');
@@ -160,8 +160,7 @@ export async function exportSvg(
  */
 async function svgToCanvas(
   svg: SVGSVGElement,
-  targetWidth: number,
-  _targetHeight: number
+  targetWidth: number
 ): Promise<HTMLCanvasElement> {
   return new Promise((resolve, reject) => {
     const serializer = new XMLSerializer();

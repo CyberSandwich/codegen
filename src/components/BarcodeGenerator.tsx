@@ -447,14 +447,14 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             </div>
           </div>
 
-          {/* Input with validation indicator */}
+          {/* Input with validation indicator and paste button */}
           <div className="relative w-full max-w-[320px]">
             <input
               type="text"
               value={data}
               onChange={(e) => onDataChange(e.target.value)}
               placeholder={currentFormatConfig?.placeholder}
-              className={`w-full px-4 py-3 pr-10 bg-[var(--color-bg-secondary)] border rounded-2xl text-[var(--color-text-primary)] focus:outline-none font-mono text-base transition-colors ${
+              className={`w-full px-4 py-3 pr-16 bg-[var(--color-bg-secondary)] border rounded-2xl text-[var(--color-text-primary)] focus:outline-none font-mono text-base transition-colors ${
                 data.trim()
                   ? isCurrentInputValid
                     ? 'border-green-500/50 focus:border-green-500'
@@ -462,9 +462,9 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
                   : 'border-[var(--color-border)] focus:border-[var(--color-accent)]'
               }`}
             />
-            {data.trim() && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                {isCurrentInputValid ? (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              {data.trim() && (
+                isCurrentInputValid ? (
                   <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
@@ -472,9 +472,26 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
                   <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                )}
-              </div>
-            )}
+                )
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    if (text) onDataChange(text.trim());
+                  } catch {
+                    // Clipboard access denied or unavailable
+                  }
+                }}
+                className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+                title="Paste"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Actions */}

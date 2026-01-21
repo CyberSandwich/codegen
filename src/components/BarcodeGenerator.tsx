@@ -11,9 +11,10 @@ import {
   BARCODE_SIZE_PRESETS,
   DEFAULT_BARCODE_WIDTH,
   DEFAULT_BARCODE_HEIGHT,
+  DEFAULT_MARGIN,
 } from '../constants';
 import type { BarcodeFormat, BarcodeStyleOptions, ExportFormat } from '../types';
-import { exportSvg } from '../utils/export';
+import { renderBarcodeToCanvas } from '../utils/barcodeRender';
 
 const TEXT_FONTS = [
   { value: 'monospace', label: 'Mono' },
@@ -101,19 +102,57 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   }, [customExportWidth, selectedPreset]);
 
   const handleExport = useCallback(async () => {
-    if (!svgRef.current || !isValid) return;
-    const { width: exportWidth, height: exportHeight } = getExportDimensions();
-    await exportSvg(svgRef.current, {
-      format: exportFormat,
-      width: exportWidth,
-      height: exportHeight,
-      quality: 0.92,
-      filename: 'barcode',
-    });
-  }, [svgRef, isValid, getExportDimensions, exportFormat]);
+    if (!isValid) return;
+
+    // Use raw data value or default for immediate response
+    const currentData = data.trim() || DEFAULT_BARCODE_DATA;
+    const { width: exportWidth } = getExportDimensions();
+
+    try {
+      // Render barcode at export resolution (scaled from preview settings)
+      const exportCanvas = await renderBarcodeToCanvas({
+        data: currentData,
+        format,
+        targetWidth: exportWidth,
+        previewBarWidth: width,
+        previewBarHeight: height,
+        margin: DEFAULT_MARGIN,
+        style,
+      });
+
+      let dataUrl: string;
+      let extension = exportFormat;
+
+      switch (exportFormat) {
+        case 'png':
+          dataUrl = exportCanvas.toDataURL('image/png');
+          break;
+        case 'webp':
+          dataUrl = exportCanvas.toDataURL('image/webp', 0.92);
+          break;
+        case 'jpg':
+          dataUrl = exportCanvas.toDataURL('image/jpeg', 0.92);
+          break;
+        case 'svg':
+          // Canvas doesn't support SVG export directly, fall back to PNG
+          dataUrl = exportCanvas.toDataURL('image/png');
+          extension = 'png';
+          break;
+        default:
+          dataUrl = exportCanvas.toDataURL('image/png');
+      }
+
+      const link = document.createElement('a');
+      link.download = `barcode.${extension}`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Failed to export:', err);
+    }
+  }, [data, isValid, getExportDimensions, exportFormat, format, width, height, style]);
 
   const handleCopy = useCallback(async () => {
-    if (!svgRef.current || !isValid) return;
+    if (!isValid) return;
 
     // Check for clipboard support
     if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
@@ -123,63 +162,39 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
     }
 
     try {
+      // Use raw data value or default for immediate response
+      const currentData = data.trim() || DEFAULT_BARCODE_DATA;
+      const { width: exportWidth } = getExportDimensions();
+
       // IMPORTANT: Safari requires passing a Promise directly to ClipboardItem
       // instead of awaiting the blob first. This maintains user gesture context.
       // See: https://wolfgangrittner.dev/how-to-use-clipboard-api-in-safari/
-      const blobPromise = new Promise<Blob>((resolve, reject) => {
-        const svg = svgRef.current;
-        if (!svg) {
-          reject(new Error('SVG not available'));
-          return;
-        }
+      const blobPromise = (async () => {
+        // Render barcode at export resolution (same as download)
+        const exportCanvas = await renderBarcodeToCanvas({
+          data: currentData,
+          format,
+          targetWidth: exportWidth,
+          previewBarWidth: width,
+          previewBarHeight: height,
+          margin: DEFAULT_MARGIN,
+          style,
+        });
 
-        // Convert SVG to PNG blob
-        const serializer = new XMLSerializer();
-        const svgString = serializer.serializeToString(svg);
-        const svgBlob = new Blob([svgString], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(svgBlob);
-
-        const img = new Image();
-        img.onload = () => {
-          // Use export dimensions for high quality copy
-          const { width: exportWidth, height: exportHeight } = getExportDimensions();
-          const canvas = document.createElement('canvas');
-          canvas.width = exportWidth;
-          canvas.height = exportHeight;
-          const ctx = canvas.getContext('2d');
-
-          if (ctx) {
-            ctx.fillStyle = style.bgColor;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            // Disable smoothing for crisp, sharp lines
-            ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-            canvas.toBlob(
-              (blob) => {
-                URL.revokeObjectURL(url);
-                if (blob) {
-                  resolve(blob);
-                } else {
-                  reject(new Error('Failed to create blob from canvas'));
-                }
-              },
-              'image/png',
-              1.0
-            );
-          } else {
-            URL.revokeObjectURL(url);
-            reject(new Error('Failed to get canvas context'));
-          }
-        };
-
-        img.onerror = () => {
-          URL.revokeObjectURL(url);
-          reject(new Error('Failed to load image'));
-        };
-
-        img.src = url;
-      });
+        return new Promise<Blob>((resolve, reject) => {
+          exportCanvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(blob);
+              } else {
+                reject(new Error('Failed to create blob from canvas'));
+              }
+            },
+            'image/png',
+            1.0
+          );
+        });
+      })();
 
       await navigator.clipboard.write([
         new ClipboardItem({
@@ -194,7 +209,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
       setCopyError(true);
       setTimeout(() => setCopyError(false), 4000);
     }
-  }, [svgRef, isValid, style.bgColor, getExportDimensions]);
+  }, [data, isValid, getExportDimensions, format, width, height, style]);
 
   const handleReset = useCallback(() => {
     setWidth(DEFAULT_BARCODE_WIDTH);

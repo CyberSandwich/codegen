@@ -484,7 +484,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
                     // Clipboard access denied or unavailable
                   }
                 }}
-                className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+                className="p-1.5 rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
                 title="Paste"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

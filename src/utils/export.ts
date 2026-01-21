@@ -47,6 +47,12 @@ export async function exportElement(
       // JPG needs explicit background color (no transparency)
       dataUrl = await toJpeg(element, { ...exportConfig, quality });
       break;
+    case 'webp':
+      // WebP provides better compression than PNG/JPG
+      dataUrl = await toPng(element, exportConfig);
+      // Convert to webp via canvas
+      dataUrl = await convertToWebP(dataUrl, quality);
+      break;
     case 'svg':
       dataUrl = await toSvg(element, exportConfig);
       break;
@@ -59,6 +65,7 @@ export async function exportElement(
 
 /**
  * Exports a canvas element directly
+ * Scales to the specified dimensions for high-quality output
  *
  * @param canvas - The canvas element to export
  * @param options - Export configuration
@@ -67,22 +74,39 @@ export function exportCanvas(
   canvas: HTMLCanvasElement,
   options: ExportOptions
 ): void {
-  const { format, quality = DEFAULT_JPG_QUALITY, filename = 'code' } = options;
+  const { format, width, height, quality = DEFAULT_JPG_QUALITY, filename = 'code' } = options;
+
+  // Create a new canvas at the target size
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = width;
+  exportCanvas.height = height;
+  const ctx = exportCanvas.getContext('2d');
+
+  if (!ctx) {
+    throw new Error('Failed to get canvas context');
+  }
+
+  // Disable smoothing for crisp, sharp pixels (important for QR codes)
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(canvas, 0, 0, width, height);
 
   let dataUrl: string;
   let extension = format;
 
   switch (format) {
     case 'png':
-      dataUrl = canvas.toDataURL('image/png');
+      dataUrl = exportCanvas.toDataURL('image/png');
       break;
     case 'jpg':
-      dataUrl = canvas.toDataURL('image/jpeg', quality);
+      dataUrl = exportCanvas.toDataURL('image/jpeg', quality);
+      break;
+    case 'webp':
+      dataUrl = exportCanvas.toDataURL('image/webp', quality);
       break;
     case 'svg':
       // Canvas doesn't support SVG export directly
       // Fall back to PNG for canvas sources
-      dataUrl = canvas.toDataURL('image/png');
+      dataUrl = exportCanvas.toDataURL('image/png');
       extension = 'png';
       break;
     default:
@@ -121,6 +145,9 @@ export async function exportSvg(
   if (format === 'png') {
     const dataUrl = canvas.toDataURL('image/png');
     downloadDataUrl(dataUrl, `${filename}.png`);
+  } else if (format === 'webp') {
+    const dataUrl = canvas.toDataURL('image/webp', quality);
+    downloadDataUrl(dataUrl, `${filename}.webp`);
   } else {
     const dataUrl = canvas.toDataURL('image/jpeg', quality);
     downloadDataUrl(dataUrl, `${filename}.jpg`);
@@ -128,24 +155,15 @@ export async function exportSvg(
 }
 
 /**
- * Converts SVG element to canvas
+ * Converts SVG element to canvas preserving aspect ratio
+ * Scales to target width while maintaining proportions
  */
 async function svgToCanvas(
   svg: SVGSVGElement,
-  width: number,
-  height: number
+  targetWidth: number,
+  _targetHeight: number
 ): Promise<HTMLCanvasElement> {
   return new Promise((resolve, reject) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      reject(new Error('Failed to get canvas context'));
-      return;
-    }
-
     const serializer = new XMLSerializer();
     const svgString = serializer.serializeToString(svg);
     const blob = new Blob([svgString], { type: 'image/svg+xml' });
@@ -153,7 +171,29 @@ async function svgToCanvas(
 
     const img = new Image();
     img.onload = () => {
-      ctx.drawImage(img, 0, 0, width, height);
+      // Get natural SVG dimensions
+      const svgWidth = svg.width.baseVal.value || img.naturalWidth || targetWidth;
+      const svgHeight = svg.height.baseVal.value || img.naturalHeight || targetWidth;
+      const svgRatio = svgWidth / svgHeight;
+
+      // Scale to target width, calculate height from aspect ratio
+      const finalWidth = targetWidth;
+      const finalHeight = targetWidth / svgRatio;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(finalWidth);
+      canvas.height = Math.round(finalHeight);
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to get canvas context'));
+        return;
+      }
+
+      // Disable smoothing for crisp, sharp rendering
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
       resolve(canvas);
     };
@@ -173,4 +213,28 @@ function downloadDataUrl(dataUrl: string, filename: string): void {
   link.download = filename;
   link.href = dataUrl;
   link.click();
+}
+
+/**
+ * Converts a PNG data URL to WebP format for better compression
+ */
+async function convertToWebP(pngDataUrl: string, quality: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Failed to get canvas context'));
+        return;
+      }
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/webp', quality));
+    };
+    img.onerror = () => reject(new Error('Failed to load image for WebP conversion'));
+    img.src = pngDataUrl;
+  });
 }

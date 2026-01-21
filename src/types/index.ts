@@ -12,16 +12,18 @@ export type QRErrorCorrectionLevel = 'L' | 'M' | 'Q' | 'H';
 export type BarcodeFormat =
   | 'CODE128'
   | 'CODE39'
+  | 'CODE93'
   | 'EAN13'
   | 'EAN8'
   | 'UPC'
+  | 'UPCE'
   | 'ITF14'
   | 'MSI'
   | 'pharmacode'
   | 'codabar';
 
 /** Export format options */
-export type ExportFormat = 'png' | 'jpg' | 'svg';
+export type ExportFormat = 'png' | 'jpg' | 'webp' | 'svg' | 'pdf';
 
 /** Size preset configuration */
 export interface SizePreset {

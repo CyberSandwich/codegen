@@ -145,20 +145,16 @@ export function useBarcode(options: UseBarcodeOptions): UseBarcodeReturn {
 
 /**
  * Validates barcode data against format requirements
+ * Relaxed validation - let JsBarcode handle specific format validation
  */
 function validateBarcodeData(
   data: string,
   format: BarcodeFormat,
-  pattern?: RegExp
+  _pattern?: RegExp
 ): boolean {
   if (!data.trim()) return false;
 
-  // Check pattern if provided
-  if (pattern && !pattern.test(data)) {
-    return false;
-  }
-
-  // Format-specific validation
+  // Basic format validation - be lenient and let JsBarcode do detailed validation
   switch (format) {
     case 'EAN13':
       return /^\d{12,13}$/.test(data);
@@ -167,12 +163,21 @@ function validateBarcodeData(
     case 'UPC':
       return /^\d{11,12}$/.test(data);
     case 'ITF14':
+      // ITF14 needs even number of digits, typically 14
       return /^\d{14}$/.test(data);
     case 'pharmacode': {
       const num = parseInt(data, 10);
       return !isNaN(num) && num >= 3 && num <= 131070;
     }
+    case 'codabar':
+      // Codabar needs start/stop chars A-D
+      return /^[A-Da-d][0-9\-$:/.+]+[A-Da-d]$/.test(data);
+    case 'MSI':
+      return /^\d+$/.test(data);
+    case 'CODE39':
+      return /^[A-Z0-9\-. $/+%*]+$/i.test(data);
     default:
+      // CODE128 accepts most characters
       return data.length > 0;
   }
 }

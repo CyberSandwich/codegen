@@ -75,17 +75,17 @@ export function ExportPanel({
   };
 
   return (
-    <div className="space-y-3 pt-4 border-t border-[var(--color-border)]">
+    <div className="space-y-4 p-5 rounded-2xl bg-[var(--color-bg-secondary)]">
       {/* Format Selection */}
       <div className="flex gap-2">
         {EXPORT_FORMATS.map((f) => (
           <button
             key={f.value}
             onClick={() => setFormat(f.value)}
-            className={`flex-1 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+            className={`flex-1 py-2.5 text-sm font-medium rounded-xl transition-all ${
               format === f.value
-                ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
-                : 'bg-[var(--color-bg-secondary)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-focus)]'
+                ? 'bg-[var(--color-accent)] text-white'
+                : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]'
             }`}
           >
             {f.label}
@@ -99,10 +99,10 @@ export function ExportPanel({
           <button
             key={preset.label}
             onClick={() => handlePresetSelect(index)}
-            className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+            className={`px-4 py-2 text-xs font-medium rounded-xl transition-all ${
               !useCustom && selectedPreset === index
-                ? 'bg-[var(--color-bg-tertiary)] border-[var(--color-accent)] text-[var(--color-text-primary)]'
-                : 'bg-[var(--color-bg-secondary)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-focus)]'
+                ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] ring-1 ring-[var(--color-accent)]'
+                : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]'
             }`}
           >
             {preset.label}
@@ -110,10 +110,10 @@ export function ExportPanel({
         ))}
         <button
           onClick={() => setUseCustom(true)}
-          className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+          className={`px-4 py-2 text-xs font-medium rounded-xl transition-all ${
             useCustom
-              ? 'bg-[var(--color-bg-tertiary)] border-[var(--color-accent)] text-[var(--color-text-primary)]'
-              : 'bg-[var(--color-bg-secondary)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-focus)]'
+              ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] ring-1 ring-[var(--color-accent)]'
+              : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]'
           }`}
         >
           Custom
@@ -122,14 +122,14 @@ export function ExportPanel({
 
       {/* Custom Size Input */}
       {useCustom && (
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-3 items-center">
           <input
             type="number"
             value={customSize.width}
             onChange={(e) =>
               setCustomSize((s) => ({ ...s, width: Math.max(32, Number(e.target.value)) }))
             }
-            className="w-20 px-2 py-1 text-sm bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
+            className="w-24 px-3 py-2 text-sm bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
             min={32}
             max={4096}
           />
@@ -140,7 +140,7 @@ export function ExportPanel({
             onChange={(e) =>
               setCustomSize((s) => ({ ...s, height: Math.max(32, Number(e.target.value)) }))
             }
-            className="w-20 px-2 py-1 text-sm bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
+            className="w-24 px-3 py-2 text-sm bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
             min={32}
             max={4096}
           />
@@ -157,7 +157,7 @@ export function ExportPanel({
       <button
         onClick={handleExport}
         disabled={isExporting}
-        className="w-full py-2.5 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full py-3 rounded-xl bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isExporting ? 'Exporting...' : 'Download'}
       </button>

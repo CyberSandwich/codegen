@@ -10,3 +10,4 @@ export { BarcodeGenerator } from './BarcodeGenerator';
 export { Scanner } from './Scanner';
 export { ExportPanel } from './ExportPanel';
 export { ColorPicker } from './ColorPicker';
+export { Toast } from './Toast';

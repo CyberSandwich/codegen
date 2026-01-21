@@ -3,7 +3,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { useBarcode } from '../hooks/useBarcode';
+import { useBarcode, validateBarcodeData } from '../hooks/useBarcode';
 import { useDebounce } from '../hooks/useDebounce';
 import { ColorPicker } from './ColorPicker';
 import {
@@ -67,6 +67,20 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
       setStyle((prev) => ({ ...prev, [key]: value }));
     },
     []
+  );
+
+  const handleFormatChange = useCallback(
+    (newFormat: BarcodeFormat) => {
+      setFormat(newFormat);
+      // Check if current data is valid for the new format
+      const currentData = data.trim() || DEFAULT_BARCODE_DATA;
+      if (!validateBarcodeData(currentData, newFormat)) {
+        // Reset to placeholder for new format
+        const formatConfig = BARCODE_FORMATS.find((f) => f.value === newFormat);
+        onDataChange(formatConfig?.placeholder ?? '');
+      }
+    },
+    [data, onDataChange]
   );
 
   // Get export dimensions (custom or preset)
@@ -378,7 +392,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
           <div className="flex gap-3 w-full max-w-[320px]">
             <select
               value={format}
-              onChange={(e) => setFormat(e.target.value as BarcodeFormat)}
+              onChange={(e) => handleFormatChange(e.target.value as BarcodeFormat)}
               className="flex-1 px-4 py-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-2xl text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none cursor-pointer text-base"
             >
               {BARCODE_FORMATS.map((f) => (

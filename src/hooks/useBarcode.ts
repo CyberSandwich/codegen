@@ -147,7 +147,7 @@ export function useBarcode(options: UseBarcodeOptions): UseBarcodeReturn {
  * Validates barcode data against format requirements
  * Relaxed validation - let JsBarcode handle specific format validation
  */
-function validateBarcodeData(
+export function validateBarcodeData(
   data: string,
   format: BarcodeFormat,
   _pattern?: RegExp

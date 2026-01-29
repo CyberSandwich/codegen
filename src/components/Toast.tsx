@@ -183,5 +183,3 @@ export function Toast({ message, type = 'info', duration = DEFAULT_DURATION, onC
     </div>
   );
 }
-
-export default Toast;

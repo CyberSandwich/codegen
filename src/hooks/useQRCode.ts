@@ -123,5 +123,3 @@ export function useQRCode(options: UseQRCodeOptions): UseQRCodeReturn {
     regenerate,
   };
 }
-
-export default useQRCode;

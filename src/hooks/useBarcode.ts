@@ -147,5 +147,3 @@ function validateBarcodeData(
   // CODE128 and others without patterns accept most characters
   return data.length > 0;
 }
-
-export default useBarcode;

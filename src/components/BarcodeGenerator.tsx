@@ -2,7 +2,7 @@
  * Barcode Generator Component - Side panel layout
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useBarcode } from '../hooks/useBarcode';
 import { useDebounce } from '../hooks/useDebounce';
 import { useCopyImage } from '../hooks/useCopyImage';
@@ -20,8 +20,8 @@ import {
   DEFAULT_BARCODE_STYLE,
   DEFAULT_BARCODE_DATA,
   DEFAULT_MARGIN,
-  EXPORT_FORMATS,
-  TEXT_FONTS,
+  FORMAT_OPTIONS,
+  FONT_OPTIONS,
 } from '../constants';
 import { ICON_CLOSE, ICON_INFO, ICON_TEXT_LINES, ICON_CHECK } from '../constants/ui-icons';
 import type { BarcodeFormat, BarcodeStyleOptions, ExportFormat } from '../types';
@@ -62,9 +62,6 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   // Get current format config for info display
   const currentFormatConfig = BARCODE_FORMATS.find((f) => f.value === format);
 
-  // Memoized options for ButtonGroup
-  const fontOptions = useMemo(() => TEXT_FONTS.map(f => ({ value: f.value, label: f.label })), []);
-  const formatOptions = useMemo(() => EXPORT_FORMATS.map(f => ({ value: f, label: f })), []);
 
   const handleStyleChange = useCallback(
     <K extends keyof BarcodeStyleOptions>(key: K, value: BarcodeStyleOptions[K]) => {
@@ -203,7 +200,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             <div className={`space-y-3 transition-opacity ${!style.displayValue ? 'opacity-30 pointer-events-none' : ''}`}>
               <span className="text-xs text-[var(--color-text-muted)]">Font</span>
               <ButtonGroup
-                options={fontOptions}
+                options={FONT_OPTIONS}
                 value={style.font}
                 onChange={(v) => handleStyleChange('font', v)}
               />
@@ -257,7 +254,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             <div className="space-y-3">
               <span className="text-xs text-[var(--color-text-muted)]">Format</span>
               <ButtonGroup
-                options={formatOptions}
+                options={FORMAT_OPTIONS}
                 value={exportFormat}
                 onChange={setExportFormat}
                 uppercase
@@ -379,4 +376,3 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   );
 }
 
-export default BarcodeGenerator;

@@ -22,6 +22,9 @@ export const ERROR_CORRECTION_LEVELS: {
   { value: 'H', label: 'H', recovery: '30%' },
 ];
 
+/** Pre-computed error correction options for ButtonGroup */
+export const ERROR_CORRECTION_OPTIONS = ERROR_CORRECTION_LEVELS.map(l => ({ value: l.value, label: l.value }));
+
 /** Supported barcode formats */
 export const BARCODE_FORMATS: {
   value: BarcodeFormat;
@@ -83,6 +86,9 @@ export const DEFAULT_MARGIN = 16;
 /** Export format options */
 export const EXPORT_FORMATS: ('png' | 'webp' | 'jpg' | 'svg')[] = ['png', 'webp', 'jpg', 'svg'];
 
+/** Pre-computed format options for ButtonGroup */
+export const FORMAT_OPTIONS = EXPORT_FORMATS.map(f => ({ value: f, label: f }));
+
 /** QR size presets */
 export const QR_SIZE_PRESETS = [
   { label: 'S', value: 128 },
@@ -97,6 +103,9 @@ export const TEXT_FONTS = [
   { value: 'sans-serif', label: 'Sans' },
   { value: 'serif', label: 'Serif' },
 ] as const;
+
+/** Pre-computed font options for ButtonGroup */
+export const FONT_OPTIONS = TEXT_FONTS.map(f => ({ value: f.value, label: f.label }));
 
 /** Default QR code data */
 export const DEFAULT_QR_DATA = 'https://saputra.co.uk';

@@ -11,7 +11,7 @@ import { CopyFeedback } from './CopyFeedback';
 import { ActionButtons } from './ActionButtons';
 import { ButtonGroup } from './ButtonGroup';
 import { Icon } from './Icon';
-import { ERROR_CORRECTION_LEVELS, DEFAULT_MARGIN, DEFAULT_QR_STYLE, DEFAULT_QR_DATA, EXPORT_FORMATS, QR_SIZE_PRESETS } from '../constants';
+import { ERROR_CORRECTION_OPTIONS, DEFAULT_MARGIN, DEFAULT_QR_STYLE, DEFAULT_QR_DATA, FORMAT_OPTIONS, QR_SIZE_PRESETS } from '../constants';
 import { ICON_LIBRARY, createIconBlobUrl } from '../constants/icons';
 import { ICON_CLOSE, ICON_IMAGE, ICON_CHECKERBOARD } from '../constants/ui-icons';
 import type { QRErrorCorrectionLevel, QRStyleOptions, ExportFormat } from '../types';
@@ -140,9 +140,6 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
     setMargin(DEFAULT_MARGIN);
   }, []);
 
-  // Memoized options for ButtonGroup
-  const formatOptions = useMemo(() => EXPORT_FORMATS.map(f => ({ value: f, label: f })), []);
-  const redundancyOptions = useMemo(() => ERROR_CORRECTION_LEVELS.map(l => ({ value: l.value, label: l.value })), []);
 
   // Icon SVG content is from hardcoded ICON_LIBRARY constants, not user input - safe to render
   const renderIcon = (svg: string | null) => (
@@ -209,7 +206,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
             <div className="mb-4">
               <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5 font-medium">Format</div>
               <ButtonGroup
-                options={formatOptions}
+                options={FORMAT_OPTIONS}
                 value={exportFormat}
                 onChange={setExportFormat}
                 uppercase
@@ -270,7 +267,7 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
             <div className="mb-4">
               <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5 font-medium">Redundancy</div>
               <ButtonGroup
-                options={redundancyOptions}
+                options={ERROR_CORRECTION_OPTIONS}
                 value={errorCorrection}
                 onChange={setErrorCorrection}
                 compact
@@ -370,4 +367,3 @@ export function QRGenerator({ data, onDataChange }: QRGeneratorProps) {
   );
 }
 
-export default QRGenerator;

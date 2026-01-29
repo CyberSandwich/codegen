@@ -114,4 +114,3 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
   );
 }
 
-export default ColorPicker;

@@ -5,57 +5,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import { QRGenerator } from './components/QRGenerator';
 import { BarcodeGenerator } from './components/BarcodeGenerator';
-import { Toast } from './components/Toast';
-import { scanImageFileMultiple, isImageFile, getImageFromClipboard } from './utils/scanner';
-import type { ScanResult } from './types';
+import { Toast, Icon } from './components';
+import { ICON_CLIPBOARD } from './constants/ui-icons';
+import type { FoundItem } from './types';
+import {
+  extractLinks,
+  toFoundItems,
+  linksToItems,
+  buildToast,
+  getImageFromClipboardData,
+  truncateFilename,
+  type ToastState,
+} from './utils/clipboard';
 
 type Mode = 'qr' | 'barcode';
 
-/** Unified item for display in toast - can be a scanned code or extracted link */
-interface FoundItem {
-  data: string;
-  type: 'qr' | 'barcode' | 'link';
-  label: string;
-}
-
-interface ToastState {
-  message: string;
-  type: 'success' | 'error' | 'info';
-  copyData?: string;
-  items?: FoundItem[];
-}
-
-/**
- * Extract URLs from text
- */
-function extractLinks(text: string): string[] {
-  // Match URLs with common patterns
-  const urlPattern = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
-  const matches = text.match(urlPattern) || [];
-  // Remove duplicates and clean up trailing punctuation
-  return [...new Set(matches.map(url => url.replace(/[.,;:!?)]+$/, '')))];
-}
-
-/**
- * Convert scan results to found items
- */
-function scanResultsToItems(results: ScanResult[]): FoundItem[] {
-  return results.map(r => ({
-    data: r.data,
-    type: r.type,
-    label: r.type === 'qr' ? 'QR Code' : 'Barcode',
-  }));
-}
-
-/**
- * Convert links to found items
- */
-function linksToItems(links: string[]): FoundItem[] {
-  return links.map(link => ({
-    data: link,
-    type: 'link' as const,
-    label: 'Link',
-  }));
+/** Lazy-loaded scanner module */
+let scannerModule: typeof import('./utils/scanner') | null = null;
+async function getScanner() {
+  if (!scannerModule) {
+    scannerModule = await import('./utils/scanner');
+  }
+  return scannerModule;
 }
 
 function App() {
@@ -63,40 +34,39 @@ function App() {
   const [sharedData, setSharedData] = useState('');
   const [toast, setToast] = useState<ToastState | null>(null);
 
-  // Process clipboard content (image or text with links)
+  const clearToast = useCallback(() => setToast(null), []);
+
+  /** Scan image file using lazy-loaded scanner */
+  const scanImage = useCallback(async (file: File): Promise<FoundItem[]> => {
+    const scanner = await getScanner();
+    const results = await scanner.scanImageFileMultiple(file);
+    return toFoundItems(results);
+  }, []);
+
+  /** Process clipboard content (image or text with links) */
   const processClipboardContent = useCallback(async () => {
     try {
-      // Try to read clipboard
       const clipboardItems = await navigator.clipboard.read();
-      const allFoundItems: FoundItem[] = [];
+      const items: FoundItem[] = [];
 
       for (const item of clipboardItems) {
-        // Check for image
         if (item.types.includes('image/png') || item.types.includes('image/jpeg')) {
           const blob = await item.getType(item.types.find(t => t.startsWith('image/')) || 'image/png');
           const file = new File([blob], 'clipboard.png', { type: blob.type });
-
           try {
-            const results = await scanImageFileMultiple(file);
-            if (results.length > 0) {
-              allFoundItems.push(...scanResultsToItems(results));
-            }
+            items.push(...await scanImage(file));
           } catch (err) {
             console.error('Scan error:', err);
           }
         }
 
-        // Check for text
         if (item.types.includes('text/plain')) {
           const blob = await item.getType('text/plain');
           const text = await blob.text();
-
-          // Extract links from text
           const links = extractLinks(text);
           if (links.length > 0) {
-            allFoundItems.push(...linksToItems(links));
-          } else if (text.trim() && allFoundItems.length === 0) {
-            // No links and no codes found - use the text directly
+            items.push(...linksToItems(links));
+          } else if (text.trim() && items.length === 0) {
             setSharedData(text.trim());
             setToast({ message: 'Text pasted', type: 'success' });
             return;
@@ -104,65 +74,29 @@ function App() {
         }
       }
 
-      // Show results
-      if (allFoundItems.length > 1) {
-        const qrCount = allFoundItems.filter(i => i.type === 'qr').length;
-        const barcodeCount = allFoundItems.filter(i => i.type === 'barcode').length;
-        const linkCount = allFoundItems.filter(i => i.type === 'link').length;
-
-        const parts: string[] = [];
-        if (qrCount > 0) parts.push(`${qrCount} QR`);
-        if (barcodeCount > 0) parts.push(`${barcodeCount} barcode${barcodeCount > 1 ? 's' : ''}`);
-        if (linkCount > 0) parts.push(`${linkCount} link${linkCount > 1 ? 's' : ''}`);
-
-        setToast({
-          message: `Found: ${parts.join(', ')}`,
-          type: 'success',
-          items: allFoundItems,
-        });
-      } else if (allFoundItems.length === 1) {
-        const item = allFoundItems[0];
-        setToast({
-          message: item.data.length > 50 ? item.data.substring(0, 47) + '...' : item.data,
-          type: 'success',
-          copyData: item.data,
-        });
-      } else {
-        setToast({ message: 'Nothing found', type: 'info' });
-      }
+      setToast(buildToast(items) ?? { message: 'Nothing found', type: 'info' });
     } catch {
-      // Fallback for browsers that don't support clipboard.read()
+      // Fallback for browsers without clipboard.read()
       try {
         const text = await navigator.clipboard.readText();
-        if (text) {
-          const links = extractLinks(text);
-
-          if (links.length > 1) {
-            setToast({
-              message: `${links.length} links found`,
-              type: 'success',
-              items: linksToItems(links),
-            });
-          } else if (links.length === 1) {
-            setToast({
-              message: links[0].length > 50 ? links[0].substring(0, 47) + '...' : links[0],
-              type: 'success',
-              copyData: links[0],
-            });
-          } else {
-            setSharedData(text.trim());
-            setToast({ message: 'Text pasted', type: 'success' });
-          }
-        } else {
+        if (!text) {
           setToast({ message: 'Clipboard empty', type: 'info' });
+          return;
+        }
+        const links = extractLinks(text);
+        if (links.length > 0) {
+          setToast(buildToast(linksToItems(links))!);
+        } else {
+          setSharedData(text.trim());
+          setToast({ message: 'Text pasted', type: 'success' });
         }
       } catch {
         setToast({ message: 'Clipboard access denied', type: 'error' });
       }
     }
-  }, []);
+  }, [scanImage]);
 
-  // Global paste handler
+  /** Global paste handler */
   const handleGlobalPaste = useCallback(async (e: ClipboardEvent) => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
@@ -170,67 +104,54 @@ function App() {
     const clipboardData = e.clipboardData;
     if (!clipboardData) return;
 
-    const allFoundItems: FoundItem[] = [];
+    // IMPORTANT: Extract all data synchronously before any async calls
+    // ClipboardData becomes invalid after the event handler yields
+    const text = clipboardData.getData('text/plain');
+    const imageFile = getImageFromClipboardData(clipboardData);
 
-    // Check for image
-    const imageFile = getImageFromClipboard(clipboardData);
-    if (imageFile && isImageFile(imageFile)) {
+    const items: FoundItem[] = [];
+    let hasImage = false;
+
+    // Now process asynchronously with extracted data
+    if (imageFile) {
+      hasImage = true;
       e.preventDefault();
       try {
-        const results = await scanImageFileMultiple(imageFile);
-        if (results.length > 0) {
-          allFoundItems.push(...scanResultsToItems(results));
-        }
+        items.push(...await scanImage(imageFile));
       } catch (err) {
         console.error('Scan failed:', err);
       }
     }
 
-    // Check for text with links
-    const text = clipboardData.getData('text/plain');
+    // Handle text - either as links or plain text
     if (text) {
       const links = extractLinks(text);
       if (links.length > 0) {
         e.preventDefault();
-        allFoundItems.push(...linksToItems(links));
+        items.push(...linksToItems(links));
+      } else if (text.trim() && items.length === 0) {
+        e.preventDefault();
+        setSharedData(text.trim());
+        setToast({ message: 'Text pasted', type: 'success' });
+        return;
       }
     }
 
-    // Show results
-    if (allFoundItems.length > 1) {
-      const qrCount = allFoundItems.filter(i => i.type === 'qr').length;
-      const barcodeCount = allFoundItems.filter(i => i.type === 'barcode').length;
-      const linkCount = allFoundItems.filter(i => i.type === 'link').length;
-
-      const parts: string[] = [];
-      if (qrCount > 0) parts.push(`${qrCount} QR`);
-      if (barcodeCount > 0) parts.push(`${barcodeCount} barcode${barcodeCount > 1 ? 's' : ''}`);
-      if (linkCount > 0) parts.push(`${linkCount} link${linkCount > 1 ? 's' : ''}`);
-
-      setToast({
-        message: `Found: ${parts.join(', ')}`,
-        type: 'success',
-        items: allFoundItems,
-      });
-    } else if (allFoundItems.length === 1) {
-      const item = allFoundItems[0];
-      setToast({
-        message: item.data.length > 50 ? item.data.substring(0, 47) + '...' : item.data,
-        type: 'success',
-        copyData: item.data,
-      });
-    } else if (imageFile) {
-      // Had an image but found nothing
+    const result = buildToast(items);
+    if (result) {
+      setToast(result);
+    } else if (hasImage) {
       setToast({ message: 'No code found in image', type: 'error' });
     }
-  }, []);
+  }, [scanImage]);
 
-  // Global drag-and-drop handler
+  /** Global drag handler */
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
   }, []);
 
+  /** Global drop handler */
   const handleDrop = useCallback(async (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -238,81 +159,41 @@ function App() {
     const dataTransfer = e.dataTransfer;
     if (!dataTransfer) return;
 
-    const allFoundItems: FoundItem[] = [];
-
-    // Check for dropped files (can be multiple images)
-    if (dataTransfer.files && dataTransfer.files.length > 0) {
-      const imageFiles = Array.from(dataTransfer.files).filter(isImageFile);
+    // Check for dropped files
+    if (dataTransfer.files?.length > 0) {
+      const scanner = await getScanner();
+      const imageFiles = Array.from(dataTransfer.files).filter(f => scanner.isImageFile(f));
 
       if (imageFiles.length > 0) {
-        // Scan all image files
+        const items: FoundItem[] = [];
         for (const file of imageFiles) {
           try {
-            const results = await scanImageFileMultiple(file);
-            if (results.length > 0) {
-              allFoundItems.push(...scanResultsToItems(results));
-            }
+            items.push(...await scanImage(file));
           } catch (err) {
-            console.error('Failed to scan image:', err);
+            console.error('Failed to scan:', err);
           }
         }
-
-        // Show results
-        if (allFoundItems.length > 1) {
-          const qrCount = allFoundItems.filter(i => i.type === 'qr').length;
-          const barcodeCount = allFoundItems.filter(i => i.type === 'barcode').length;
-
-          const parts: string[] = [];
-          if (qrCount > 0) parts.push(`${qrCount} QR`);
-          if (barcodeCount > 0) parts.push(`${barcodeCount} barcode${barcodeCount > 1 ? 's' : ''}`);
-
-          setToast({
-            message: `Found: ${parts.join(', ')}`,
-            type: 'success',
-            items: allFoundItems,
-          });
-        } else if (allFoundItems.length === 1) {
-          const item = allFoundItems[0];
-          setToast({
-            message: item.data.length > 50 ? item.data.substring(0, 47) + '...' : item.data,
-            type: 'success',
-            copyData: item.data,
-          });
-        } else {
-          setToast({ message: 'No code found in image(s)', type: 'error' });
-        }
-        return;
-      } else {
-        // Non-image files dropped
-        const file = dataTransfer.files[0];
-        const fileName = file.name.length > 30 ? file.name.substring(0, 27) + '...' : file.name;
-        setToast({ message: `${fileName} is not a valid image`, type: 'error' });
+        setToast(buildToast(items) ?? { message: 'No code found in image(s)', type: 'error' });
         return;
       }
+
+      const file = dataTransfer.files[0];
+      setToast({ message: `${truncateFilename(file.name)} is not a valid image`, type: 'error' });
+      return;
     }
 
     // Check for dropped text
     const text = dataTransfer.getData('text/plain');
     if (text) {
       const links = extractLinks(text);
-      if (links.length > 1) {
-        setToast({
-          message: `${links.length} links found`,
-          type: 'success',
-          items: linksToItems(links),
-        });
-      } else if (links.length === 1) {
-        setToast({
-          message: links[0].length > 50 ? links[0].substring(0, 47) + '...' : links[0],
-          type: 'success',
-          copyData: links[0],
-        });
+      if (links.length > 0) {
+        setToast(buildToast(linksToItems(links))!);
       } else {
         setSharedData(text);
         setToast({ message: 'Text added', type: 'success' });
       }
     }
-  }, []);
+  }, [scanImage]);
 
   useEffect(() => {
     document.addEventListener('paste', handleGlobalPaste);
@@ -333,9 +214,7 @@ function App() {
         className="fixed top-4 right-4 z-40 p-3 rounded-2xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-all shadow-lg"
         title="Paste image or text"
       >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-        </svg>
+        <Icon path={ICON_CLIPBOARD} />
       </button>
 
       <main className="flex-1 flex flex-col p-4 sm:p-6 lg:p-8">
@@ -382,7 +261,7 @@ function App() {
           type={toast.type}
           copyData={toast.copyData}
           items={toast.items}
-          onClose={() => setToast(null)}
+          onClose={clearToast}
         />
       )}
     </div>

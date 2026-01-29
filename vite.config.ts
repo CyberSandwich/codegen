@@ -5,16 +5,14 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/codegen/', // Change 'codegen' to match your repo name
+  base: '/codegen/',
   build: {
     rollupOptions: {
       output: {
         manualChunks: {
-          // React core
           react: ['react', 'react-dom'],
-          // QR/Barcode generation
           generators: ['qrcode', 'jsbarcode'],
-          // Scanning libraries (loaded on demand for paste/drop)
+          // Scanning libraries lazy loaded on paste/drop
           scanners: ['jsqr', '@ericblade/quagga2'],
         },
       },

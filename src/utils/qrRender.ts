@@ -1,10 +1,11 @@
 /**
- * QR Code rendering utility for generating QR codes at any resolution
+ * QR Code rendering utility - single source of truth for all QR rendering
  */
 
 import QRCode from 'qrcode';
 import type { QRConfig } from '../types';
 import { DEFAULT_QR_STYLE, DEFAULT_MARGIN } from '../constants';
+import { roundRect } from './canvas';
 
 interface RenderQROptions {
   data: string;
@@ -14,75 +15,43 @@ interface RenderQROptions {
   style?: Partial<QRConfig['style']>;
   logo?: string | null;
   transparentBg?: boolean;
+  /** For preview rendering - uses fixed margin; for export - scales margin */
+  scaleMargin?: boolean;
+}
+
+interface QRModuleData {
+  modules: { get(row: number, col: number): number; size: number };
 }
 
 /**
- * Draws a rounded rectangle
+ * Core QR rendering function - draws QR modules to a canvas context
+ * Used by both preview (useQRCode) and export (renderQRToCanvas)
  */
-function roundRect(
+export function drawQRModules(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + width - radius, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-  ctx.lineTo(x + width, y + height - radius);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-  ctx.lineTo(x + radius, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
-  ctx.fill();
-}
-
-/**
- * Renders a QR code to a canvas at native resolution
- * Returns a Promise that resolves to the canvas element
- */
-export async function renderQRToCanvas(options: RenderQROptions): Promise<HTMLCanvasElement> {
-  const {
-    data,
-    size,
-    margin = DEFAULT_MARGIN,
-    errorCorrection = 'M',
-    style = {},
-    logo = null,
-    transparentBg = false,
-  } = options;
-
-  const fgColor = style.fgColor ?? DEFAULT_QR_STYLE.fgColor;
-  const bgColor = style.bgColor ?? DEFAULT_QR_STYLE.bgColor;
-  const dotStyle = style.dotStyle ?? DEFAULT_QR_STYLE.dotStyle;
-
-  // Create QR code data
-  const segments = QRCode.create(data, { errorCorrectionLevel: errorCorrection });
-  const modules = segments.modules;
+  modules: QRModuleData['modules'],
+  options: {
+    size: number;
+    margin: number;
+    fgColor: string;
+    bgColor: string;
+    dotStyle: 'square' | 'rounded' | 'dots';
+    transparentBg: boolean;
+    logo: string | null;
+    scaleMargin?: boolean;
+  }
+): { moduleSize: number; offset: number; logoZoneStart: number; logoZoneEnd: number; logoZoneModules: number } {
+  const { size, margin, fgColor, bgColor, dotStyle, transparentBg, logo, scaleMargin } = options;
   const moduleCount = modules.size;
 
-  // Scale margin proportionally to size (16px margin at 320px = 5% of size)
-  const scaledMargin = Math.round((margin / 320) * size);
-  const availableSize = size - scaledMargin * 2;
+  // Calculate margin - for export we scale proportionally, for preview we use fixed
+  const effectiveMargin = scaleMargin ? Math.round((margin / 320) * size) : margin;
+  const availableSize = size - effectiveMargin * 2;
   // Use integer module size to avoid sub-pixel gaps
   const moduleSize = Math.floor(availableSize / moduleCount);
   // Center the QR within available space after rounding
   const actualQRSize = moduleSize * moduleCount;
   const offset = Math.floor((size - actualQRSize) / 2);
-
-  // Create canvas
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  if (!ctx) {
-    throw new Error('Could not get canvas context');
-  }
 
   // Disable smoothing for crisp, sharp pixels
   ctx.imageSmoothingEnabled = false;
@@ -132,29 +101,105 @@ export async function renderQRToCanvas(options: RenderQROptions): Promise<HTMLCa
     }
   }
 
+  return { moduleSize, offset, logoZoneStart, logoZoneEnd, logoZoneModules };
+}
+
+/**
+ * Draws a logo on the QR code canvas
+ */
+export function drawQRLogo(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  options: {
+    offset: number;
+    logoZoneStart: number;
+    logoZoneModules: number;
+    moduleSize: number;
+    bgColor: string;
+    transparentBg: boolean;
+    size: number;
+    scaleMargin?: boolean;
+  }
+): void {
+  const { offset, logoZoneStart, logoZoneModules, moduleSize, bgColor, transparentBg, size, scaleMargin } = options;
+
+  // Calculate logo position to match the skipped module zone exactly
+  const logoPixelSize = logoZoneModules * moduleSize;
+  const logoX = offset + logoZoneStart * moduleSize;
+  const logoY = offset + logoZoneStart * moduleSize;
+
+  // Draw rounded background for logo (for better visibility)
+  if (!transparentBg) {
+    ctx.fillStyle = bgColor;
+    const padding = scaleMargin ? (2 / 320) * size : 2;
+    const bgSize = logoPixelSize + padding * 2;
+    const cornerRadius = bgSize * 0.1;
+    roundRect(ctx, logoX - padding, logoY - padding, bgSize, bgSize, cornerRadius);
+  }
+
+  // Draw logo centered within the zone with small padding
+  const logoPadding = logoPixelSize * 0.08;
+  ctx.drawImage(img, logoX + logoPadding, logoY + logoPadding, logoPixelSize - logoPadding * 2, logoPixelSize - logoPadding * 2);
+}
+
+/**
+ * Renders a QR code to a canvas at native resolution
+ * Returns a Promise that resolves to the canvas element
+ */
+export async function renderQRToCanvas(options: RenderQROptions): Promise<HTMLCanvasElement> {
+  const {
+    data,
+    size,
+    margin = DEFAULT_MARGIN,
+    errorCorrection = 'M',
+    style = {},
+    logo = null,
+    transparentBg = false,
+    scaleMargin = true,
+  } = options;
+
+  const fgColor = style.fgColor ?? DEFAULT_QR_STYLE.fgColor;
+  const bgColor = style.bgColor ?? DEFAULT_QR_STYLE.bgColor;
+  const dotStyle = style.dotStyle ?? DEFAULT_QR_STYLE.dotStyle;
+
+  // Create QR code data
+  const segments = QRCode.create(data, { errorCorrectionLevel: errorCorrection });
+
+  // Create canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    throw new Error('Could not get canvas context');
+  }
+
+  // Draw QR modules
+  const layoutInfo = drawQRModules(ctx, segments.modules, {
+    size,
+    margin,
+    fgColor,
+    bgColor,
+    dotStyle,
+    transparentBg,
+    logo,
+    scaleMargin,
+  });
+
   // Draw logo if provided
   if (logo) {
     await new Promise<void>((resolve) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        // Calculate logo position to match the skipped module zone exactly
-        const logoPixelSize = logoZoneModules * moduleSize;
-        const logoX = offset + logoZoneStart * moduleSize;
-        const logoY = offset + logoZoneStart * moduleSize;
-
-        // Draw rounded background for logo (for better visibility)
-        if (!transparentBg) {
-          ctx.fillStyle = bgColor;
-          const padding = (2 / 320) * size; // Scale padding proportionally
-          const bgSize = logoPixelSize + padding * 2;
-          const cornerRadius = bgSize * 0.1; // Slight rounding
-          roundRect(ctx, logoX - padding, logoY - padding, bgSize, bgSize, cornerRadius);
-        }
-
-        // Draw logo centered within the zone with small padding
-        const logoPadding = logoPixelSize * 0.08;
-        ctx.drawImage(img, logoX + logoPadding, logoY + logoPadding, logoPixelSize - logoPadding * 2, logoPixelSize - logoPadding * 2);
+        drawQRLogo(ctx, img, {
+          ...layoutInfo,
+          bgColor,
+          transparentBg,
+          size,
+          scaleMargin,
+        });
         resolve();
       };
       img.onerror = () => resolve(); // Continue without logo on error

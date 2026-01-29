@@ -10,12 +10,33 @@ interface RenderBarcodeOptions {
   data: string;
   format: BarcodeFormat;
   targetWidth: number;
-  /** Preview bar width used to calculate scaling ratio */
   previewBarWidth?: number;
-  /** Preview bar height used to calculate scaling ratio */
   previewBarHeight?: number;
   margin?: number;
   style?: Partial<BarcodeStyleOptions>;
+}
+
+/** Shared JsBarcode options builder - exported for use by useBarcode hook */
+export function buildBarcodeOptions(
+  style: Partial<BarcodeStyleOptions>,
+  barWidth: number,
+  barHeight: number,
+  margin: number,
+  fontSize: number,
+  textMargin: number
+) {
+  return {
+    width: barWidth,
+    height: barHeight,
+    margin,
+    displayValue: style.displayValue ?? DEFAULT_BARCODE_STYLE.displayValue,
+    font: style.font ?? DEFAULT_BARCODE_STYLE.font,
+    fontSize,
+    textAlign: style.textAlign ?? DEFAULT_BARCODE_STYLE.textAlign,
+    textMargin,
+    lineColor: style.lineColor ?? DEFAULT_BARCODE_STYLE.lineColor,
+    background: style.bgColor ?? DEFAULT_BARCODE_STYLE.bgColor,
+  };
 }
 
 /**
@@ -33,73 +54,50 @@ export async function renderBarcodeToCanvas(options: RenderBarcodeOptions): Prom
     style = {},
   } = options;
 
-  const lineColor = style.lineColor ?? DEFAULT_BARCODE_STYLE.lineColor;
-  const bgColor = style.bgColor ?? DEFAULT_BARCODE_STYLE.bgColor;
-  const displayValue = style.displayValue ?? DEFAULT_BARCODE_STYLE.displayValue;
-  const font = style.font ?? DEFAULT_BARCODE_STYLE.font;
   const previewFontSize = style.fontSize ?? DEFAULT_BARCODE_STYLE.fontSize;
-  const textAlign = style.textAlign ?? DEFAULT_BARCODE_STYLE.textAlign;
   const previewTextMargin = style.textMargin ?? DEFAULT_BARCODE_STYLE.textMargin;
 
-  // Create a temporary SVG at preview dimensions to measure natural width
+  // Create temporary SVGs for measurement and export
   const measureSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  document.body.appendChild(measureSvg);
+  const exportSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+  // Use a hidden container to avoid DOM reflow issues
+  const container = document.createElement('div');
+  container.style.cssText = 'position:absolute;left:-9999px;visibility:hidden';
+  container.appendChild(measureSvg);
+  container.appendChild(exportSvg);
+  document.body.appendChild(container);
 
   try {
+    // Render at preview size to measure natural dimensions
     JsBarcode(measureSvg, data, {
       format,
-      width: previewBarWidth,
-      height: previewBarHeight,
-      margin,
-      displayValue,
-      font,
-      fontSize: previewFontSize,
-      textAlign,
-      textMargin: previewTextMargin,
-      lineColor,
-      background: bgColor,
+      ...buildBarcodeOptions(style, previewBarWidth, previewBarHeight, margin, previewFontSize, previewTextMargin),
     });
 
     // Get natural dimensions
     const previewWidth = measureSvg.getBoundingClientRect().width || measureSvg.width.baseVal.value;
     const previewHeight = measureSvg.getBoundingClientRect().height || measureSvg.height.baseVal.value;
 
-    // Calculate scale ratio
+    // Calculate scale ratio and render at target size
     const scale = targetWidth / previewWidth;
     const targetHeight = Math.round(previewHeight * scale);
 
-    // Create export SVG with scaled dimensions
-    const exportSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    document.body.appendChild(exportSvg);
-
-    // Scale all dimensions proportionally
-    const scaledBarWidth = previewBarWidth * scale;
-    const scaledBarHeight = previewBarHeight * scale;
-    const scaledMargin = margin * scale;
-    const scaledFontSize = Math.round(previewFontSize * scale);
-    const scaledTextMargin = Math.round(previewTextMargin * scale);
-
     JsBarcode(exportSvg, data, {
       format,
-      width: scaledBarWidth,
-      height: scaledBarHeight,
-      margin: scaledMargin,
-      displayValue,
-      font,
-      fontSize: scaledFontSize,
-      textAlign,
-      textMargin: scaledTextMargin,
-      lineColor,
-      background: bgColor,
+      ...buildBarcodeOptions(
+        style,
+        previewBarWidth * scale,
+        previewBarHeight * scale,
+        margin * scale,
+        Math.round(previewFontSize * scale),
+        Math.round(previewTextMargin * scale)
+      ),
     });
 
-    // Convert SVG to canvas
-    const canvas = await svgToCanvas(exportSvg, targetWidth, targetHeight);
-
-    document.body.removeChild(exportSvg);
-    return canvas;
+    return await svgToCanvas(exportSvg, targetWidth, targetHeight);
   } finally {
-    document.body.removeChild(measureSvg);
+    document.body.removeChild(container);
   }
 }
 

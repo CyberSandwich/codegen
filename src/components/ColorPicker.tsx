@@ -2,7 +2,7 @@
  * Color Picker Component - Compact visual color selector
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 interface ColorPickerProps {
   value: string;
@@ -19,21 +19,46 @@ const COLOR_PALETTE = [
   ['#fecaca', '#fed7aa', '#fef08a', '#bbf7d0', '#99f6e4', '#bfdbfe', '#ddd6fe'],
 ];
 
+/** Hex color validation pattern */
+const HEX_PATTERN = /^#[0-9A-Fa-f]{0,6}$/;
+
 export function ColorPicker({ value, onChange }: ColorPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Close on outside click
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleClick = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClick);
-      return () => document.removeEventListener('mousedown', handleClick);
-    }
+
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
   }, [isOpen]);
+
+  const handleColorSelect = useCallback(
+    (color: string) => {
+      onChange(color);
+      setIsOpen(false);
+    },
+    [onChange]
+  );
+
+  const handleHexInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      if (HEX_PATTERN.test(val)) {
+        onChange(val);
+      }
+    },
+    [onChange]
+  );
+
+  const isSelected = (color: string) => value.toLowerCase() === color.toLowerCase();
 
   return (
     <div ref={containerRef} className="relative">
@@ -54,12 +79,9 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
                 {row.map((color) => (
                   <button
                     key={color}
-                    onClick={() => {
-                      onChange(color);
-                      setIsOpen(false);
-                    }}
+                    onClick={() => handleColorSelect(color)}
                     className={`w-6 h-6 rounded-md transition-transform hover:scale-110 ${
-                      value.toLowerCase() === color.toLowerCase()
+                      isSelected(color)
                         ? 'ring-2 ring-[var(--color-accent)] ring-offset-1 ring-offset-[var(--color-bg-secondary)]'
                         : ''
                     }`}
@@ -81,12 +103,7 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
             <input
               type="text"
               value={value.toUpperCase()}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
-                  onChange(val);
-                }
-              }}
+              onChange={handleHexInput}
               className="flex-1 px-2 py-1.5 text-xs font-mono bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
               maxLength={7}
             />

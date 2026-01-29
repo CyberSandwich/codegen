@@ -2,27 +2,31 @@
  * Barcode Generator Component - Side panel layout
  */
 
-import { useState, useCallback } from 'react';
-import { useBarcode, validateBarcodeData } from '../hooks/useBarcode';
+import { useState, useCallback, useMemo } from 'react';
+import { useBarcode } from '../hooks/useBarcode';
 import { useDebounce } from '../hooks/useDebounce';
+import { useCopyImage } from '../hooks/useCopyImage';
 import { ColorPicker } from './ColorPicker';
+import { CopyFeedback } from './CopyFeedback';
+import { ActionButtons } from './ActionButtons';
+import { ButtonGroup } from './ButtonGroup';
+import { SliderControl } from './SliderControl';
+import { Icon } from './Icon';
 import {
   BARCODE_FORMATS,
   BARCODE_SIZE_PRESETS,
   DEFAULT_BARCODE_WIDTH,
   DEFAULT_BARCODE_HEIGHT,
+  DEFAULT_BARCODE_STYLE,
+  DEFAULT_BARCODE_DATA,
   DEFAULT_MARGIN,
+  EXPORT_FORMATS,
+  TEXT_FONTS,
 } from '../constants';
+import { ICON_CLOSE, ICON_INFO, ICON_TEXT_LINES, ICON_CHECK } from '../constants/ui-icons';
 import type { BarcodeFormat, BarcodeStyleOptions, ExportFormat } from '../types';
 import { renderBarcodeToCanvas } from '../utils/barcodeRender';
-
-const TEXT_FONTS = [
-  { value: 'monospace', label: 'Mono' },
-  { value: 'sans-serif', label: 'Sans' },
-  { value: 'serif', label: 'Serif' },
-];
-
-const EXPORT_FORMATS: ExportFormat[] = ['png', 'webp', 'jpg', 'svg'];
+import { exportCanvas } from '../utils/download';
 
 interface BarcodeGeneratorProps {
   data: string;
@@ -33,32 +37,23 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   const [format, setFormat] = useState<BarcodeFormat>('CODE128');
   const [width, setWidth] = useState(DEFAULT_BARCODE_WIDTH);
   const [height, setHeight] = useState(DEFAULT_BARCODE_HEIGHT);
-  const [style, setStyle] = useState<BarcodeStyleOptions>({
-    lineColor: '#000000',
-    bgColor: '#ffffff',
-    displayValue: true,
-    font: 'monospace',
-    fontSize: 14,
-    textAlign: 'center',
-    textMargin: 4,
-  });
+  const [style, setStyle] = useState<BarcodeStyleOptions>({ ...DEFAULT_BARCODE_STYLE });
   const [selectedPreset, setSelectedPreset] = useState(3); // XL default
   const [customExportWidth, setCustomExportWidth] = useState('');
   const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
   const [showOptions, setShowOptions] = useState(false);
   const [showFormatInfo, setShowFormatInfo] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
-  const [copyError, setCopyError] = useState(false);
-
-  // Default barcode data (matches CODE128 placeholder)
-  const DEFAULT_BARCODE_DATA = '1234';
+  const { copySuccess, copyError, copyToClipboard } = useCopyImage();
   const debouncedData = useDebounce(data, 300);
-  const debouncedFormat = useDebounce(format, 300);
-  const displayData = debouncedData.trim() || DEFAULT_BARCODE_DATA;
+
+  // Use immediate data if it's a format placeholder (just switched formats)
+  // Otherwise use debounced data for smooth typing experience
+  const isPlaceholder = BARCODE_FORMATS.some(f => f.placeholder === data.trim());
+  const displayData = isPlaceholder ? data.trim() : (debouncedData.trim() || DEFAULT_BARCODE_DATA);
 
   const { svgRef, isValid, error } = useBarcode({
     data: displayData,
-    format: debouncedFormat,
+    format,
     width,
     height,
     style,
@@ -67,9 +62,9 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
   // Get current format config for info display
   const currentFormatConfig = BARCODE_FORMATS.find((f) => f.value === format);
 
-  // Real-time validation of current input (not debounced)
-  const currentData = data.trim() || DEFAULT_BARCODE_DATA;
-  const isCurrentInputValid = validateBarcodeData(currentData, format);
+  // Memoized options for ButtonGroup
+  const fontOptions = useMemo(() => TEXT_FONTS.map(f => ({ value: f.value, label: f.label })), []);
+  const formatOptions = useMemo(() => EXPORT_FORMATS.map(f => ({ value: f, label: f })), []);
 
   const handleStyleChange = useCallback(
     <K extends keyof BarcodeStyleOptions>(key: K, value: BarcodeStyleOptions[K]) => {
@@ -103,14 +98,25 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
 
   const handleExport = useCallback(async () => {
     if (!isValid) return;
-
-    // Use raw data value or default for immediate response
     const currentData = data.trim() || DEFAULT_BARCODE_DATA;
     const { width: exportWidth } = getExportDimensions();
-
     try {
-      // Render barcode at export resolution (scaled from preview settings)
-      const exportCanvas = await renderBarcodeToCanvas({
+      const canvas = await renderBarcodeToCanvas({
+        data: currentData, format, targetWidth: exportWidth,
+        previewBarWidth: width, previewBarHeight: height, margin: DEFAULT_MARGIN, style,
+      });
+      exportCanvas(canvas, exportFormat, 'barcode');
+    } catch (err) {
+      console.error('Failed to export:', err);
+    }
+  }, [data, isValid, getExportDimensions, exportFormat, format, width, height, style]);
+
+  const handleCopy = useCallback(() => {
+    if (!isValid) return;
+    const currentData = data.trim() || DEFAULT_BARCODE_DATA;
+    const { width: exportWidth } = getExportDimensions();
+    copyToClipboard(() =>
+      renderBarcodeToCanvas({
         data: currentData,
         format,
         targetWidth: exportWidth,
@@ -118,111 +124,14 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
         previewBarHeight: height,
         margin: DEFAULT_MARGIN,
         style,
-      });
-
-      let dataUrl: string;
-      let extension = exportFormat;
-
-      switch (exportFormat) {
-        case 'png':
-          dataUrl = exportCanvas.toDataURL('image/png');
-          break;
-        case 'webp':
-          dataUrl = exportCanvas.toDataURL('image/webp', 0.92);
-          break;
-        case 'jpg':
-          dataUrl = exportCanvas.toDataURL('image/jpeg', 0.92);
-          break;
-        case 'svg':
-          // Canvas doesn't support SVG export directly, fall back to PNG
-          dataUrl = exportCanvas.toDataURL('image/png');
-          extension = 'png';
-          break;
-        default:
-          dataUrl = exportCanvas.toDataURL('image/png');
-      }
-
-      const link = document.createElement('a');
-      link.download = `barcode.${extension}`;
-      link.href = dataUrl;
-      link.click();
-    } catch (err) {
-      console.error('Failed to export:', err);
-    }
-  }, [data, isValid, getExportDimensions, exportFormat, format, width, height, style]);
-
-  const handleCopy = useCallback(async () => {
-    if (!isValid) return;
-
-    // Check for clipboard support
-    if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
-      setCopyError(true);
-      setTimeout(() => setCopyError(false), 4000);
-      return;
-    }
-
-    try {
-      // Use raw data value or default for immediate response
-      const currentData = data.trim() || DEFAULT_BARCODE_DATA;
-      const { width: exportWidth } = getExportDimensions();
-
-      // IMPORTANT: Safari requires passing a Promise directly to ClipboardItem
-      // instead of awaiting the blob first. This maintains user gesture context.
-      // See: https://wolfgangrittner.dev/how-to-use-clipboard-api-in-safari/
-      const blobPromise = (async () => {
-        // Render barcode at export resolution (same as download)
-        const exportCanvas = await renderBarcodeToCanvas({
-          data: currentData,
-          format,
-          targetWidth: exportWidth,
-          previewBarWidth: width,
-          previewBarHeight: height,
-          margin: DEFAULT_MARGIN,
-          style,
-        });
-
-        return new Promise<Blob>((resolve, reject) => {
-          exportCanvas.toBlob(
-            (blob) => {
-              if (blob) {
-                resolve(blob);
-              } else {
-                reject(new Error('Failed to create blob from canvas'));
-              }
-            },
-            'image/png',
-            1.0
-          );
-        });
-      })();
-
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          'image/png': blobPromise,
-        }),
-      ]);
-
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 4000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-      setCopyError(true);
-      setTimeout(() => setCopyError(false), 4000);
-    }
-  }, [data, isValid, getExportDimensions, format, width, height, style]);
+      })
+    );
+  }, [data, isValid, getExportDimensions, format, width, height, style, copyToClipboard]);
 
   const handleReset = useCallback(() => {
     setWidth(DEFAULT_BARCODE_WIDTH);
     setHeight(DEFAULT_BARCODE_HEIGHT);
-    setStyle({
-      lineColor: '#000000',
-      bgColor: '#ffffff',
-      displayValue: true,
-      font: 'monospace',
-      fontSize: 14,
-      textAlign: 'center',
-      textMargin: 4,
-    });
+    setStyle({ ...DEFAULT_BARCODE_STYLE });
     setSelectedPreset(3);
     setCustomExportWidth('');
     setExportFormat('png');
@@ -247,9 +156,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
                 onClick={() => setShowOptions(false)}
                 className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <Icon path={ICON_CLOSE} />
               </button>
             </div>
             {/* Colors */}
@@ -272,72 +179,45 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             </div>
 
             {/* Bar Dimensions */}
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-xs text-[var(--color-text-muted)]">Bar Width</span>
-                <span className="text-xs text-[var(--color-text-muted)]">{width.toFixed(1)}</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={4}
-                step={0.5}
-                value={width}
-                onChange={(e) => setWidth(Number(e.target.value))}
-                className="w-full"
-              />
-            </div>
+            <SliderControl
+              label="Bar Width"
+              value={width}
+              onChange={setWidth}
+              min={1}
+              max={4}
+              step={0.5}
+              formatValue={(v) => v.toFixed(1)}
+            />
 
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-xs text-[var(--color-text-muted)]">Height</span>
-                <span className="text-xs text-[var(--color-text-muted)]">{height}px</span>
-              </div>
-              <input
-                type="range"
-                min={40}
-                max={200}
-                step={10}
-                value={height}
-                onChange={(e) => setHeight(Number(e.target.value))}
-                className="w-full"
-              />
-            </div>
+            <SliderControl
+              label="Height"
+              value={height}
+              onChange={setHeight}
+              min={40}
+              max={200}
+              step={10}
+              formatValue={(v) => `${v}px`}
+            />
 
             {/* Text Font (greyed out when text not displayed) */}
             <div className={`space-y-3 transition-opacity ${!style.displayValue ? 'opacity-30 pointer-events-none' : ''}`}>
               <span className="text-xs text-[var(--color-text-muted)]">Font</span>
-              <div className="flex gap-1">
-                {TEXT_FONTS.map((font) => (
-                  <button
-                    key={font.value}
-                    onClick={() => handleStyleChange('font', font.value)}
-                    className={`flex-1 py-2 text-xs rounded-lg transition-all ${
-                      style.font === font.value
-                        ? 'bg-[var(--color-accent)] text-white'
-                        : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]'
-                    }`}
-                  >
-                    {font.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className={`space-y-3 transition-opacity ${!style.displayValue ? 'opacity-30 pointer-events-none' : ''}`}>
-              <div className="flex justify-between">
-                <span className="text-xs text-[var(--color-text-muted)]">Font Size</span>
-                <span className="text-xs text-[var(--color-text-muted)]">{style.fontSize}px</span>
-              </div>
-              <input
-                type="range"
-                min={10}
-                max={24}
-                step={1}
-                value={style.fontSize}
-                onChange={(e) => handleStyleChange('fontSize', Number(e.target.value))}
-                className="w-full"
+              <ButtonGroup
+                options={fontOptions}
+                value={style.font}
+                onChange={(v) => handleStyleChange('font', v)}
               />
             </div>
+            <SliderControl
+              label="Font Size"
+              value={style.fontSize}
+              onChange={(v) => handleStyleChange('fontSize', v)}
+              min={10}
+              max={24}
+              step={1}
+              formatValue={(v) => `${v}px`}
+              disabled={!style.displayValue}
+            />
 
             {/* Export Size */}
             <div className="space-y-3">
@@ -376,21 +256,12 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             {/* Format */}
             <div className="space-y-3">
               <span className="text-xs text-[var(--color-text-muted)]">Format</span>
-              <div className="flex gap-1">
-                {EXPORT_FORMATS.map((fmt) => (
-                  <button
-                    key={fmt}
-                    onClick={() => setExportFormat(fmt)}
-                    className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all uppercase ${
-                      exportFormat === fmt
-                        ? 'bg-[var(--color-accent)] text-white'
-                        : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]'
-                    }`}
-                  >
-                    {fmt}
-                  </button>
-                ))}
-              </div>
+              <ButtonGroup
+                options={formatOptions}
+                value={exportFormat}
+                onChange={setExportFormat}
+                uppercase
+              />
             </div>
 
             {/* Reset */}
@@ -412,13 +283,12 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
             className="w-[280px] sm:w-[360px] lg:w-[420px] h-[160px] lg:h-[200px] rounded-2xl flex items-center justify-center p-6 transition-colors shadow-xl overflow-hidden"
             style={{ backgroundColor: style.bgColor }}
           >
-            {error ? (
+            {error && (
               <div className="text-[var(--color-error)] text-sm text-center px-4">{error}</div>
-            ) : (
-              <div className="flex items-start justify-center" style={{ height: height + 30 }}>
-                <svg ref={svgRef} className="block max-w-full shrink-0" />
-              </div>
             )}
+            <div className={`flex items-start justify-center ${error ? 'hidden' : ''}`} style={{ height: height + 30 }}>
+              <svg ref={svgRef} className="block max-w-full shrink-0" />
+            </div>
           </div>
 
           {/* Format Select + Text Toggle + Info */}
@@ -443,9 +313,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
               }`}
               title={style.displayValue ? 'Hide text' : 'Show text'}
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
-              </svg>
+              <Icon path={ICON_TEXT_LINES} />
             </button>
             <div className="relative">
               <button
@@ -457,9 +325,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
                 }`}
                 title="Format requirements"
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <Icon path={ICON_INFO} />
               </button>
               {showFormatInfo && currentFormatConfig && (
                 <div className="absolute bottom-full right-0 mb-2 w-48 p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-lg z-30">
@@ -481,7 +347,7 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
                 placeholder={currentFormatConfig?.placeholder}
                 className={`w-full px-4 py-3 pr-10 bg-[var(--color-bg-secondary)] border rounded-2xl text-[var(--color-text-primary)] focus:outline-none font-mono text-base transition-colors ${
                   data.trim()
-                    ? isCurrentInputValid
+                    ? !error && isValid
                       ? 'border-green-500/50 focus:border-green-500'
                       : 'border-red-500/50 focus:border-red-500'
                     : 'border-[var(--color-border)] focus:border-[var(--color-accent)]'
@@ -489,73 +355,26 @@ export function BarcodeGenerator({ data, onDataChange }: BarcodeGeneratorProps) 
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
                 {data.trim() && (
-                  isCurrentInputValid ? (
-                    <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  )
+                  !error && isValid
+                    ? <Icon path={ICON_CHECK} className="w-5 h-5 text-green-500" />
+                    : <Icon path={ICON_CLOSE} className="w-5 h-5 text-red-500" />
                 )}
               </div>
             </div>
-            {/* Validation reason */}
-            {data.trim() && !isCurrentInputValid && currentFormatConfig && (
-              <div className="mt-2 text-xs text-red-400 text-center">
-                {currentFormatConfig.label} requires: {currentFormatConfig.description}
-              </div>
-            )}
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 w-full max-w-[320px]">
-            <button
-              onClick={() => setShowOptions(!showOptions)}
-              className={`px-4 py-3 rounded-2xl transition-all ${
-                showOptions
-                  ? 'bg-[var(--color-accent)] text-white'
-                  : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
-              }`}
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
-            <button
-              onClick={handleCopy}
-              disabled={!isValid || !debouncedData.trim()}
-              className="px-4 py-3 rounded-2xl bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-            </button>
-            <button
-              onClick={handleExport}
-              disabled={!isValid || !debouncedData.trim()}
-              className="flex-1 py-3 rounded-2xl bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-            </button>
-          </div>
+          <ActionButtons
+            showOptions={showOptions}
+            onToggleOptions={() => setShowOptions(!showOptions)}
+            onCopy={handleCopy}
+            onExport={handleExport}
+            copyDisabled={!isValid || !debouncedData.trim()}
+            exportDisabled={!isValid || !debouncedData.trim()}
+          />
       </div>
 
-      {/* Copy Toast */}
-      {copySuccess && (
-        <div className="fixed bottom-6 right-6 px-4 py-2 bg-[var(--color-accent)] text-white text-sm rounded-xl shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
-          Copied to clipboard
-        </div>
-      )}
-      {copyError && (
-        <div className="fixed bottom-6 right-6 px-4 py-2 bg-[var(--color-error)] text-white text-sm rounded-xl shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
-          Copy failed - use HTTPS or download instead
-        </div>
-      )}
+      <CopyFeedback success={copySuccess} error={copyError} />
     </div>
   );
 }

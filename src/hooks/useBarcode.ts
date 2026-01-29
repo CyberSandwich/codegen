@@ -5,6 +5,7 @@
  * Supports multiple barcode formats with customizable styling.
  */
 
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useRef, useCallback, useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import type { BarcodeConfig, BarcodeFormat } from '../types';
@@ -13,7 +14,9 @@ import {
   DEFAULT_BARCODE_HEIGHT,
   DEFAULT_MARGIN,
   DEFAULT_BARCODE_STYLE,
+  BARCODE_FORMATS,
 } from '../constants';
+import { buildBarcodeOptions } from '../utils/barcodeRender';
 
 interface UseBarcodeOptions {
   data: string;
@@ -72,47 +75,24 @@ export function useBarcode(options: UseBarcodeOptions): UseBarcodeReturn {
   // Generate barcode when dependencies change
   useEffect(() => {
     const svg = svgRef.current;
+
     if (!svg || !data.trim()) {
+      setError(null);
       return;
     }
 
-    let cancelled = false;
+    // Clear previous SVG content (safe - not user content)
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    // Using setTimeout to move state updates out of synchronous effect execution
-    const generate = () => {
-      try {
-        // Clear previous content
-        svg.innerHTML = '';
-
-        JsBarcode(svg, data, {
-          format,
-          width,
-          height,
-          margin,
-          displayValue,
-          font,
-          fontSize,
-          textAlign,
-          textMargin,
-          lineColor,
-          background: bgColor,
-        });
-
-        if (!cancelled) {
-          setError(null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Invalid barcode data for format');
-        }
-      }
-    };
-
-    generate();
-
-    return () => {
-      cancelled = true;
-    };
+    try {
+      JsBarcode(svg, data, {
+        format,
+        ...buildBarcodeOptions(style, width, height, margin, fontSize, textMargin),
+      });
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid barcode data for format');
+    }
   }, [
     data,
     format,
@@ -126,6 +106,7 @@ export function useBarcode(options: UseBarcodeOptions): UseBarcodeReturn {
     fontSize,
     textAlign,
     textMargin,
+    style,
     renderKey,
   ]);
 
@@ -143,44 +124,28 @@ export function useBarcode(options: UseBarcodeOptions): UseBarcodeReturn {
 
 /**
  * Validates barcode data against format requirements
- * Relaxed validation - let JsBarcode handle specific format validation
+ * Uses patterns from BARCODE_FORMATS, with special handling for pharmacode
  */
-export function validateBarcodeData(
+function validateBarcodeData(
   data: string,
   format: BarcodeFormat
 ): boolean {
   if (!data.trim()) return false;
 
-  // Basic format validation - be lenient and let JsBarcode do detailed validation
-  switch (format) {
-    case 'EAN13':
-      return /^\d{12,13}$/.test(data);
-    case 'EAN8':
-      return /^\d{7,8}$/.test(data);
-    case 'UPC':
-      return /^\d{11,12}$/.test(data);
-    case 'UPCE':
-      return /^\d{6,8}$/.test(data);
-    case 'ITF14':
-      // ITF14 needs even number of digits, typically 14
-      return /^\d{14}$/.test(data);
-    case 'pharmacode': {
-      const num = parseInt(data, 10);
-      return !isNaN(num) && num >= 3 && num <= 131070;
-    }
-    case 'codabar':
-      // Codabar needs start/stop chars A-D
-      return /^[A-Da-d][0-9\-$:/.+]+[A-Da-d]$/.test(data);
-    case 'MSI':
-      return /^\d+$/.test(data);
-    case 'CODE39':
-      return /^[A-Z0-9\-. $/+%*]+$/i.test(data);
-    case 'CODE93':
-      return /^[A-Z0-9\-. $/+%]+$/i.test(data);
-    default:
-      // CODE128 accepts most characters
-      return data.length > 0;
+  // Special case: pharmacode has numeric range validation
+  if (format === 'pharmacode') {
+    const num = parseInt(data, 10);
+    return !isNaN(num) && num >= 3 && num <= 131070;
   }
+
+  // Use pattern from BARCODE_FORMATS if available
+  const formatConfig = BARCODE_FORMATS.find(f => f.value === format);
+  if (formatConfig?.pattern) {
+    return formatConfig.pattern.test(data);
+  }
+
+  // CODE128 and others without patterns accept most characters
+  return data.length > 0;
 }
 
 export default useBarcode;

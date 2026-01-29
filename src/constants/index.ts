@@ -37,18 +37,10 @@ export const BARCODE_FORMATS: {
   { value: 'EAN8', label: 'EAN-8', placeholder: '1234567', pattern: /^\d{7,8}$/, description: '7-8 digits' },
   { value: 'UPC', label: 'UPC-A', placeholder: '12345678901', pattern: /^\d{11,12}$/, description: '11-12 digits' },
   { value: 'UPCE', label: 'UPC-E', placeholder: '123456', pattern: /^\d{6,8}$/, description: '6-8 digits' },
-  { value: 'ITF14', label: 'ITF-14', placeholder: '12345678901234', pattern: /^\d{14}$/, description: 'Exactly 14 digits' },
+  { value: 'ITF', label: 'ITF-14', placeholder: '12345678901234', pattern: /^\d{14}$/, description: '14 digits (any numbers)' },
   { value: 'MSI', label: 'MSI', placeholder: '1234', pattern: /^\d+$/, description: 'Digits only' },
   { value: 'pharmacode', label: 'Pharmacode', placeholder: '123', pattern: /^\d+$/, description: 'Number 3-131070' },
   { value: 'codabar', label: 'Codabar', placeholder: 'A1234B', pattern: /^[A-D][0-9\-$:/.+]+[A-D]$/i, description: 'Start/end A-D, digits and - $ : / . +' },
-];
-
-/** Size presets for QR export */
-export const SIZE_PRESETS: SizePreset[] = [
-  { label: 'S', width: 128, height: 128 },
-  { label: 'M', width: 256, height: 256 },
-  { label: 'L', width: 512, height: 512 },
-  { label: 'XL', width: 1024, height: 1024 },
 ];
 
 /** Barcode size presets */
@@ -88,5 +80,26 @@ export const DEFAULT_BARCODE_HEIGHT = 100;
 /** Default margin */
 export const DEFAULT_MARGIN = 16;
 
-/** Export quality for JPG */
-export const DEFAULT_JPG_QUALITY = 0.92;
+/** Export format options */
+export const EXPORT_FORMATS: ('png' | 'webp' | 'jpg' | 'svg')[] = ['png', 'webp', 'jpg', 'svg'];
+
+/** QR size presets */
+export const QR_SIZE_PRESETS = [
+  { label: 'S', value: 128 },
+  { label: 'M', value: 256 },
+  { label: 'L', value: 512 },
+  { label: 'XL', value: 1024 },
+];
+
+/** Font options for barcode text */
+export const TEXT_FONTS = [
+  { value: 'monospace', label: 'Mono' },
+  { value: 'sans-serif', label: 'Sans' },
+  { value: 'serif', label: 'Serif' },
+] as const;
+
+/** Default QR code data */
+export const DEFAULT_QR_DATA = 'https://saputra.co.uk';
+
+/** Default barcode data (matches CODE128 placeholder) */
+export const DEFAULT_BARCODE_DATA = '1234';
